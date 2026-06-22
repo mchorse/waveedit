@@ -7,6 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyName>WaveEdit</AssemblyName>
     <RootNamespace>WaveEdit</RootNamespace>
     <LangVersion>latest</LangVersion>
@@ -16,6 +17,10 @@
 
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="icon.ico" LogicalName="WaveEdit.icon.ico" />
   </ItemGroup>
 
 </Project>

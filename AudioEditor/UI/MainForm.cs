@@ -40,6 +40,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Text = "WaveEdit";
+        LoadAppIcon();
         ClientSize = new Size(1100, 620);
         StartPosition = FormStartPosition.CenterScreen;
         KeyPreview = true;
@@ -684,6 +685,16 @@ public sealed class MainForm : Form
         MessageBox.Show(this, ex.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
 
     private static void Beep() => System.Media.SystemSounds.Beep.Play();
+
+    private void LoadAppIcon()
+    {
+        try
+        {
+            using var s = GetType().Assembly.GetManifestResourceStream("WaveEdit.icon.ico");
+            if (s != null) Icon = new Icon(s);
+        }
+        catch { /* fall back to default icon */ }
+    }
 }
 
 /// <summary>Dark color scheme for the menu / status ToolStrips (hover, dropdown, borders).</summary>

@@ -72,6 +72,7 @@ dotnet run --project EngineTests/EngineTests.csproj
 ```
 AudioEditor/
   Program.cs                 entry point (STA, high-DPI, open-with)
+  icon.ico                   app icon (red half-disc + green play triangle, soft shadow)
   Audio/
     AudioDocument.cs         planar float32 sample model (Channels[ch][frame])
     WavIO.cs                 load (AudioFileReader) / save (PCM 16/24/32, float)
