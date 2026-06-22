@@ -104,7 +104,32 @@ public sealed class MainForm : Form
         string? path = TryGetDroppedFile(e);
         if (path == null) return;
         Activate();
-        TryOpenPath(path);
+
+        // Empty document -> load here. Otherwise open the file in a new window so the
+        // current work is never disturbed.
+        if (_doc.Length == 0)
+            TryOpenPath(path);
+        else
+            LaunchNewInstance(path);
+    }
+
+    /// <summary>Start another copy of WaveEdit with a file to open.</summary>
+    private void LaunchNewInstance(string path)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = Application.ExecutablePath,
+                UseShellExecute = false,
+            };
+            psi.ArgumentList.Add(path);
+            System.Diagnostics.Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            Error("Could not open a new window", ex);
+        }
     }
 
     /// <summary>Return the first dropped path with a supported audio extension, or null.</summary>
