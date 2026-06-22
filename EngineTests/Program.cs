@@ -88,6 +88,83 @@ float before = adoc.Channels[0][11]; // arbitrary nonzero
 Dsp.Amplify(adoc.Channels, 0, frames, 2f);
 Check("amplify x2 doubles samples", Math.Abs(adoc.Channels[0][11] - before * 2) < 1e-5);
 
+// ---- 5b. multi-region delete via CompositeCommand (right-to-left) + undo ----
+{
+    // Build a ramp so every frame has a unique, checkable value.
+    int n = 1000;
+    var ramp = new float[1][];
+    ramp[0] = new float[n];
+    for (int i = 0; i < n; i++) ramp[0][i] = i;
+    var mdoc = new AudioDocument(sr, ramp);
+    var mundo = new UndoStack();
+
+    // delete frames [100,200) and [500,600) — two disjoint regions
+    // ordered right-to-left so absolute positions stay valid
+    var multi = new CompositeCommand("Delete 2 regions", new IEditCommand[]
+    {
+        new DeleteRangeCommand(500, 100),
+        new DeleteRangeCommand(100, 100),
+    });
+    mundo.Execute(multi, mdoc);
+
+    Check("multi-delete reduces length by both regions", mdoc.Length == n - 200, $"{mdoc.Length}");
+    // after removing [100,200) and [500,600): value 99 then 200 should be adjacent at index 100
+    Check("multi-delete: first gap closed", mdoc.Channels[0][99] == 99 && mdoc.Channels[0][100] == 200,
+        $"{mdoc.Channels[0][99]},{mdoc.Channels[0][100]}");
+    // index 99(=99),... region2 originally [500,600); after first deletion everything shifted -100,
+    // so value 499 sits at 399 and value 600 should follow it.
+    Check("multi-delete: second gap closed", mdoc.Channels[0][399] == 499 && mdoc.Channels[0][400] == 600,
+        $"{mdoc.Channels[0][399]},{mdoc.Channels[0][400]}");
+
+    mundo.Undo(mdoc);
+    Check("multi-delete undo restores length", mdoc.Length == n, $"{mdoc.Length}");
+    bool restored = true;
+    for (int i = 0; i < n; i++) if (mdoc.Channels[0][i] != i) { restored = false; break; }
+    Check("multi-delete undo restores every sample", restored);
+}
+
+// ---- 5c. resample to a different rate (duration preserved, tone intact) ----
+{
+    int srcRate = 48000, dstRate = 44100, secLen = 1;
+    var rdoc = new AudioDocument(srcRate, MakeSine(srcRate, 2, srcRate * secLen, 440));
+    var res = Resampler.Resample(rdoc, dstRate);
+    Check("resample sets new rate", res.SampleRate == dstRate, $"{res.SampleRate}");
+    Check("resample preserves channels", res.ChannelCount == 2, $"{res.ChannelCount}");
+    // ~1s of audio at 44100 should be within a few hundred samples of 44100 frames
+    Check("resample preserves duration", Math.Abs(res.Length - dstRate * secLen) < 500, $"{res.Length}");
+    // peak should remain near the 0.5 source amplitude (not blown up or zeroed)
+    float rpeak = 0; for (long i = 0; i < res.Length; i++) rpeak = Math.Max(rpeak, Math.Abs(res.Channels[0][i]));
+    Check("resample keeps amplitude sane", rpeak > 0.4f && rpeak < 0.6f, $"peak {rpeak:0.000}");
+    // no-op path returns same instance
+    Check("resample same-rate is a no-op", ReferenceEquals(Resampler.Resample(rdoc, srcRate), rdoc));
+}
+
+// ---- 5d. recent files (MRU): cap, de-dup/move-to-front, persistence, clear ----
+{
+    string store = Path.Combine(dir, "recent_test.txt");
+    if (File.Exists(store)) File.Delete(store);
+
+    var mru = new WaveEdit.Util.RecentFiles(store);
+    for (int i = 1; i <= 12; i++) mru.Add($@"C:\audio\file{i}.wav");
+    Check("MRU caps at 10", mru.Items.Count == 10, $"{mru.Items.Count}");
+    Check("MRU newest is at front", mru.Items[0].EndsWith("file12.wav"), mru.Items[0]);
+    Check("MRU dropped the two oldest", !mru.Items.Any(p => p.EndsWith("file1.wav") || p.EndsWith("file2.wav")));
+
+    mru.Add(@"C:\audio\file5.wav"); // existing -> move to front, no dupe
+    int dupes = mru.Items.Count(p => p.EndsWith("file5.wav"));
+    Check("MRU re-add moves to front without duplicating", mru.Items[0].EndsWith("file5.wav") && dupes == 1 && mru.Items.Count == 10,
+        $"front={mru.Items[0]} dupes={dupes} count={mru.Items.Count}");
+
+    // persistence: a fresh instance over the same store sees the same list
+    var reload = new WaveEdit.Util.RecentFiles(store);
+    Check("MRU persists across instances", reload.Items.Count == 10 && reload.Items[0].EndsWith("file5.wav"), $"{reload.Items.Count}");
+
+    mru.Clear();
+    var afterClear = new WaveEdit.Util.RecentFiles(store);
+    Check("MRU clear empties and persists", afterClear.Items.Count == 0, $"{afterClear.Items.Count}");
+    if (File.Exists(store)) File.Delete(store);
+}
+
 // ---- 6. fade endpoints ----
 var fdoc = new AudioDocument(sr, MakeSine(sr, 1, 1000, 1000));
 Dsp.FadeIn(fdoc.Channels, 0, 1000);

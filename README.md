@@ -10,13 +10,13 @@ no project files — open a `.wav`, edit samples directly, save back out.
 | # | Capability | Notes |
 |---|------------|-------|
 | 1 | **Open / Save WAV** | `Ctrl+O` / `Ctrl+S`, native file dialogs. Reads PCM 16/24/32 & IEEE float (plus MP3/AIFF/WMA/FLAC decode on the way in). Saves WAV PCM 16/24 or 32-bit float. |
-| 2 | **Playback** | Mono or stereo, **any** sample rate. `Space` toggles play/stop. |
-| 3 | **Range selection** | **Shift + drag** to select; click to set the cursor. Sample-accurate. |
+| 2 | **Playback** | Mono or stereo, **any** sample rate. `Space` plays from the cursor to the end (toggles stop). *Transport ▸ Play Selection* auditions the selected region instead. |
+| 3 | **Multi-region selection** | **Shift + drag** selects a range and adds more disjoint regions; plain click/drag only moves the cursor and never alters the selection. **Ctrl + D** deselects all. Cut/copy/paste and all effects apply to every region at once. Sample-accurate. |
 | 4 | **Cut** | `Ctrl+X` / `Del` removes the selected waveform (with undo). |
 | 5 | **Insert silence** | `Ctrl+Shift+I`, prompts for a duration in seconds. |
 | 6 | **Zoom to individual samples** | Mouse wheel zooms from whole-file down to ~64 px per sample, drawing sample dots and stems. |
 | 7 | **Native dialogs** | Standard Win32 open/save. |
-| 8 | **Recording** | `F5` — pick any active input endpoint (mic, line-in, or render **loopback**) via WASAPI, with a live level meter. |
+| 8 | **Recording** | `F5` — pick any active input endpoint (mic, line-in, or render **loopback**) via WASAPI, with a live level meter. Into an existing document, the take is **auto-resampled** to the document's rate and channel-matched, then inserted at the cursor. Into an empty document it keeps its native rate. |
 | 9 | **Windows only** | Targets `net8.0-windows`, WinForms, WASAPI/WaveOut. |
 
 ### Extras included
@@ -25,7 +25,7 @@ no project files — open a `.wav`, edit samples directly, save back out.
 - **Processing** (Process menu): Amplify/Gain (dB), Normalize, Fade In, Fade Out, Silence selection.
 - **Live playhead** that follows playback and auto-scrolls.
 - **Status bar**: cursor position (time + sample index), selection length, format, and zoom level.
-- **Drag & drop**: drop an audio file onto the window to open it (respects the unsaved-changes prompt).
+- **Drag & drop**: drop an audio file onto an empty document to load it; drop onto a document that already has audio and it opens in a **new window**, leaving your current work untouched.
 - **Open-with**: pass a file path on the command line (or drop a file on the `.exe`).
 
 ## Build & run
@@ -49,8 +49,10 @@ dotnet run --project EngineTests/EngineTests.csproj
 
 | Mouse | Action |
 |-------|--------|
-| Shift + drag | Select a range |
-| Click | Set cursor / playback start |
+| Shift + drag | Select a range / add another region (multi-select) |
+| Click / drag | Move the cursor (selection unchanged) |
+| Ctrl + D | Deselect everything |
+| Middle-button drag | Pan the timeline |
 | Wheel | Zoom in/out (centered on pointer) |
 | Shift + Wheel | Scroll horizontally |
 | Ctrl + Wheel | Vertical amplitude zoom |
@@ -98,13 +100,15 @@ target bit depth happens only at save time.
   touching the audio engine — the view only depends on `AudioDocument`.
 - **NAudio** handles all device I/O and file decode. New encoders (MP3 via `MediaFoundationEncoder`,
   FLAC, etc.) slot into `WavIO` behind the existing `Save`/`Load` surface.
-- **No resampling on paste/insert across rates** — a clip recorded at a different rate is offered as
-  a new document. A resampler (`MediaFoundationResampler` / `WdlResamplingSampleProvider`) is the
-  natural next addition.
+- **Resampling** uses NAudio's managed WDL resampler (`Audio/Resampler.cs`). Recording into an existing
+  document conforms automatically. Cross-rate **paste** still inserts raw frames without resampling (the
+  clipboard carries its own rate) — routing paste through `Resampler` too is a small next step.
 - **Peak cache** (min/max over 256-sample blocks) bounds repaint cost when zoomed out. It is rebuilt
   after every edit; for multi-hour files a multi-level mip pyramid would be the next optimization.
 
 ## Known limitations / possible next steps
 - Undo stores removed/overwritten audio in memory; very large cuts on huge files cost RAM.
 - Mono/stereo only follows the source file; no channel up/down-mix UI yet.
-- No spectral view, no time-stretch, no per-region multi-selection (single contiguous range today).
+- No spectral view, no time-stretch.
+- Multi-region **normalize** scales each region to its own peak independently (not a shared peak).
+- **Play Selection** plays the bounding span across multiple regions (gaps included).
