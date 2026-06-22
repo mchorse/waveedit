@@ -23,4 +23,9 @@
     <EmbeddedResource Include="icon.ico" LogicalName="WaveEdit.icon.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- document icon for the .wav file-type association; ships next to the exe -->
+    <None Include="wav-document.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

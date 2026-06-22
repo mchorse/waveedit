@@ -45,6 +45,31 @@ Pure (non-UI) audio logic — WAV round-trips, cut/insert/undo, DSP — is cover
 dotnet run --project EngineTests/EngineTests.csproj
 ```
 
+## Make WaveEdit open `.wav` files (optional)
+
+WaveEdit ships **two** icons: the app icon (red half-disc + green play triangle) and a
+**document icon** ([wav-document.ico](AudioEditor/wav-document.ico) — a page with a waveform
+and the play-mark badged in the corner) that `.wav` files use once WaveEdit is their default.
+
+A no-admin, per-user (HKCU) registration is provided:
+
+```powershell
+# register (points at the Release build by default; pass -ExePath to override)
+powershell -ExecutionPolicy Bypass -File scripts\Register-WaveEditWav.ps1
+
+# undo completely
+powershell -ExecutionPolicy Bypass -File scripts\Unregister-WaveEditWav.ps1
+```
+
+After registering, **choose the default yourself** — Windows 10/11 deliberately block scripts
+from setting it: right-click a `.wav` ▸ *Open with* ▸ *Choose another app* ▸ pick **WaveEdit** ▸
+*Always*; or Settings ▸ Apps ▸ Default apps ▸ search `.wav` ▸ WaveEdit. Explorer's icon cache may
+need a moment (or an Explorer restart) to show the new icon.
+
+> The script registers the path of your **built** exe. If you move the project or do a clean
+> rebuild that removes `bin\`, re-run the register script (or `dotnet publish` to a fixed folder
+> and pass that `-ExePath`).
+
 ## Controls
 
 | Mouse | Action |
