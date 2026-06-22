@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows.Forms;
 using WaveEdit.Audio;
 using WaveEdit.Edit;
+using WaveEdit.Util;
 
 namespace WaveEdit.UI;
 
@@ -33,6 +34,8 @@ public sealed class MainForm : Form
     private readonly ToolStripStatusLabel _lblZoom = new();
 
     private ToolStripMenuItem _miUndo = null!, _miRedo = null!;
+    private ToolStripMenuItem _recentMenu = null!;
+    private readonly RecentFiles _recent = new();
 
     public MainForm()
     {
@@ -133,6 +136,9 @@ public sealed class MainForm : Form
         file.DropDownItems.Add(Item("&Save", Keys.Control | Keys.S, (_, _) => Save()));
         file.DropDownItems.Add(Item("Save &As…", Keys.Control | Keys.Shift | Keys.S, (_, _) => SaveAs()));
         file.DropDownItems.Add(new ToolStripSeparator());
+        _recentMenu = new ToolStripMenuItem("Recent &Files") { ForeColor = UiText };
+        file.DropDownItems.Add(_recentMenu);
+        file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(Item("E&xit", Keys.Alt | Keys.F4, (_, _) => Close()));
 
         var edit = new ToolStripMenuItem("&Edit");
@@ -176,6 +182,63 @@ public sealed class MainForm : Form
         foreach (ToolStripMenuItem top in menu.Items) ColorMenuTree(top);
         MainMenuStrip = menu;
         Controls.Add(menu);
+        RebuildRecentMenu();
+    }
+
+    // ===================== recent files =====================
+
+    private void RebuildRecentMenu()
+    {
+        _recentMenu.DropDownItems.Clear();
+
+        if (_recent.Items.Count == 0)
+        {
+            _recentMenu.DropDownItems.Add(new ToolStripMenuItem("(no recent files)")
+            {
+                Enabled = false,
+                ForeColor = UiTextDim,
+            });
+            return;
+        }
+
+        int i = 1;
+        foreach (var path in _recent.Items)
+        {
+            string local = path; // capture per-iteration
+            var mi = new ToolStripMenuItem($"&{i} {Path.GetFileName(path)}")
+            {
+                ToolTipText = path,
+                ForeColor = UiText,
+            };
+            mi.Click += (_, _) => OpenRecent(local);
+            _recentMenu.DropDownItems.Add(mi);
+            i++;
+        }
+
+        _recentMenu.DropDownItems.Add(new ToolStripSeparator());
+        var clear = new ToolStripMenuItem("&Clear Recent Files") { ForeColor = UiText };
+        clear.Click += (_, _) => { _recent.Clear(); RebuildRecentMenu(); };
+        _recentMenu.DropDownItems.Add(clear);
+    }
+
+    private void AddRecent(string path)
+    {
+        _recent.Add(path);
+        RebuildRecentMenu();
+    }
+
+    private void OpenRecent(string path)
+    {
+        if (!File.Exists(path))
+        {
+            var r = MessageBox.Show(this,
+                $"\"{path}\" no longer exists.\nRemove it from the recent list?",
+                "File not found", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (r == DialogResult.Yes) { _recent.Remove(path); RebuildRecentMenu(); }
+            return;
+        }
+        if (!ConfirmDiscard()) return;
+        LoadPath(path);
     }
 
     /// <summary>Force light text on every menu item and submenu (they default to near-black).</summary>
@@ -242,6 +305,7 @@ public sealed class MainForm : Form
             _undo.Clear();
             _view.SetDocument(_doc, resetView: true);
             UpdateTitle(); UpdateStatus();
+            AddRecent(path);
         }
         catch (Exception ex)
         {
@@ -252,7 +316,7 @@ public sealed class MainForm : Form
     private bool Save()
     {
         if (string.IsNullOrEmpty(_doc.FilePath)) return SaveAs();
-        try { WavIO.Save(_doc, _doc.FilePath); UpdateTitle(); return true; }
+        try { WavIO.Save(_doc, _doc.FilePath); UpdateTitle(); AddRecent(_doc.FilePath); return true; }
         catch (Exception ex) { Error("Could not save file", ex); return false; }
     }
 
@@ -270,6 +334,7 @@ public sealed class MainForm : Form
         {
             WavIO.SaveWithFilterIndex(_doc, dlg.FileName, dlg.FilterIndex);
             UpdateTitle();
+            AddRecent(dlg.FileName);
             return true;
         }
         catch (Exception ex) { Error("Could not save file", ex); return false; }
