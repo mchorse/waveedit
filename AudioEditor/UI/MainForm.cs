@@ -21,6 +21,11 @@ public sealed class MainForm : Form
     private static float[][]? _clip;
     private static int _clipRate;
 
+    // shared dark-UI palette for the menu / status bar
+    private static readonly Color UiBack = Color.FromArgb(40, 43, 48);
+    private static readonly Color UiText = Color.FromArgb(214, 218, 222);
+    private static readonly Color UiTextDim = Color.FromArgb(150, 155, 160);
+
     private readonly StatusStrip _status = new();
     private readonly ToolStripStatusLabel _lblPos = new() { Text = "—" };
     private readonly ToolStripStatusLabel _lblSel = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
@@ -37,8 +42,13 @@ public sealed class MainForm : Form
         KeyPreview = true;
         BackColor = Color.FromArgb(28, 30, 34);
 
+        // dark, readable rendering for menus, dropdowns and the status bar
+        ToolStripManager.Renderer = new ToolStripProfessionalRenderer(new DarkColorTable())
+        {
+            RoundedEdges = false,
+        };
+
         BuildMenu();
-        BuildToolbar();
         BuildStatusBar();
 
         Controls.Add(_view);
@@ -115,7 +125,7 @@ public sealed class MainForm : Form
 
     private void BuildMenu()
     {
-        var menu = new MenuStrip();
+        var menu = new MenuStrip { BackColor = UiBack, ForeColor = UiText };
 
         var file = new ToolStripMenuItem("&File");
         file.DropDownItems.Add(Item("&New", Keys.Control | Keys.N, (_, _) => NewDocument()));
@@ -163,46 +173,35 @@ public sealed class MainForm : Form
         help.DropDownItems.Add(Item("&Shortcuts / About", Keys.F1, (_, _) => ShowAbout()));
 
         menu.Items.AddRange(new ToolStripItem[] { file, edit, process, transport, view, help });
+        foreach (ToolStripMenuItem top in menu.Items) ColorMenuTree(top);
         MainMenuStrip = menu;
         Controls.Add(menu);
     }
 
-    private void BuildToolbar()
+    /// <summary>Force light text on every menu item and submenu (they default to near-black).</summary>
+    private static void ColorMenuTree(ToolStripMenuItem item)
     {
-        var tb = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden };
-        tb.Items.Add(TbButton("Open", () => Open()));
-        tb.Items.Add(TbButton("Save", () => Save()));
-        tb.Items.Add(new ToolStripSeparator());
-        tb.Items.Add(TbButton("Play/Stop", () => TogglePlay()));
-        tb.Items.Add(TbButton("Rec", () => Record()));
-        tb.Items.Add(new ToolStripSeparator());
-        tb.Items.Add(TbButton("Cut", () => Cut()));
-        tb.Items.Add(TbButton("Copy", () => Copy()));
-        tb.Items.Add(TbButton("Paste", () => Paste()));
-        tb.Items.Add(new ToolStripSeparator());
-        tb.Items.Add(TbButton("Zoom +", () => _view.ZoomIn()));
-        tb.Items.Add(TbButton("Zoom -", () => _view.ZoomOut()));
-        tb.Items.Add(TbButton("Full", () => _view.ZoomFull()));
-        tb.Items.Add(TbButton("Samples", () => _view.ZoomToSamples()));
-        Controls.Add(tb);
-    }
-
-    private static ToolStripButton TbButton(string text, Action onClick)
-    {
-        var b = new ToolStripButton(text) { DisplayStyle = ToolStripItemDisplayStyle.Text };
-        b.Click += (_, _) => onClick();
-        return b;
+        item.ForeColor = UiText;
+        foreach (ToolStripItem sub in item.DropDownItems)
+        {
+            if (sub is ToolStripMenuItem mi) ColorMenuTree(mi);
+            else sub.ForeColor = UiTextDim; // separators etc.
+        }
     }
 
     private void BuildStatusBar()
     {
+        _status.BackColor = UiBack;
+        _status.ForeColor = UiText;
+        foreach (var lbl in new[] { _lblPos, _lblSel, _lblFmt, _lblZoom })
+            lbl.ForeColor = UiText;
         _status.Items.AddRange(new ToolStripItem[] { _lblPos, _lblSel, _lblFmt, _lblZoom });
         Controls.Add(_status);
     }
 
     private ToolStripMenuItem Item(string text, Keys keys, EventHandler onClick)
     {
-        var mi = new ToolStripMenuItem(text) { ShortcutKeys = keys };
+        var mi = new ToolStripMenuItem(text) { ShortcutKeys = keys, ForeColor = UiText };
         if (keys == Keys.None) mi.ShortcutKeys = Keys.None;
         mi.Click += onClick;
         return mi;
@@ -601,4 +600,45 @@ public sealed class MainForm : Form
         MessageBox.Show(this, ex.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
 
     private static void Beep() => System.Media.SystemSounds.Beep.Play();
+}
+
+/// <summary>Dark color scheme for the menu / status ToolStrips (hover, dropdown, borders).</summary>
+internal sealed class DarkColorTable : ProfessionalColorTable
+{
+    private static readonly Color Bar = Color.FromArgb(40, 43, 48);
+    private static readonly Color Drop = Color.FromArgb(46, 49, 55);
+    private static readonly Color Hover = Color.FromArgb(64, 70, 80);
+    private static readonly Color HoverEdge = Color.FromArgb(90, 98, 110);
+    private static readonly Color Sep = Color.FromArgb(70, 74, 80);
+
+    public DarkColorTable() => UseSystemColors = false;
+
+    // top menu bar
+    public override Color MenuStripGradientBegin => Bar;
+    public override Color MenuStripGradientEnd => Bar;
+    public override Color ToolStripGradientBegin => Bar;
+    public override Color ToolStripGradientMiddle => Bar;
+    public override Color ToolStripGradientEnd => Bar;
+
+    // hovered top-level item
+    public override Color MenuItemSelected => Hover;
+    public override Color MenuItemSelectedGradientBegin => Hover;
+    public override Color MenuItemSelectedGradientEnd => Hover;
+    public override Color MenuItemBorder => HoverEdge;
+    public override Color MenuBorder => Sep;
+
+    // pressed (open) top-level item
+    public override Color MenuItemPressedGradientBegin => Drop;
+    public override Color MenuItemPressedGradientMiddle => Drop;
+    public override Color MenuItemPressedGradientEnd => Drop;
+
+    // dropdown body + left image margin
+    public override Color ToolStripDropDownBackground => Drop;
+    public override Color ImageMarginGradientBegin => Drop;
+    public override Color ImageMarginGradientMiddle => Drop;
+    public override Color ImageMarginGradientEnd => Drop;
+
+    // separators
+    public override Color SeparatorDark => Sep;
+    public override Color SeparatorLight => Sep;
 }
