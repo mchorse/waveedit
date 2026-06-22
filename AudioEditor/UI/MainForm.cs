@@ -485,30 +485,24 @@ public sealed class MainForm : Form
             var rec = dlg.Result;
             if (_doc.Length == 0)
             {
-                // empty doc -> adopt the recording outright
+                // empty doc -> adopt the recording outright (keeps its native rate)
                 if (!ConfirmDiscard()) return;
                 _doc = rec;
                 _undo.Clear();
                 _view.SetDocument(_doc, resetView: true);
             }
-            else if (rec.SampleRate == _doc.SampleRate)
+            else
             {
-                var data = MatchChannels(rec.Channels, _doc.ChannelCount);
+                // conform the recording to the current document: resample to match the
+                // document's rate, then up/down-mix channels, then insert at the cursor.
+                int srcRate = rec.SampleRate;
+                var conformed = Resampler.Resample(rec, _doc.SampleRate);
+                var data = MatchChannels(conformed.Channels, _doc.ChannelCount);
                 long at = _view.HasSelection ? _view.SelectionStart : _view.CursorFrame;
                 _undo.Execute(new InsertCommand(at, data, "Insert recording"), _doc);
                 _view.SetCursor(at + data[0].LongLength);
-            }
-            else
-            {
-                var r = MessageBox.Show(this,
-                    $"Recording is {rec.SampleRate}Hz but the document is {_doc.SampleRate}Hz.\n" +
-                    "Open the recording as a new document?", "Sample rate mismatch",
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                if (r == DialogResult.Yes)
-                {
-                    if (!ConfirmDiscard()) return;
-                    _doc = rec; _undo.Clear(); _view.SetDocument(_doc, resetView: true);
-                }
+                if (srcRate != _doc.SampleRate)
+                    _lblSel.Text = $"Recording resampled {srcRate} → {_doc.SampleRate} Hz and inserted.";
             }
             UpdateTitle(); UpdateStatus();
         }
