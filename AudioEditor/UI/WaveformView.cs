@@ -31,6 +31,11 @@ public sealed class WaveformView : Control
     private bool _selecting;
     private long _dragAnchor;
 
+    // middle-button panning
+    private bool _panning;
+    private int _panStartX;
+    private double _panStartFirstVisible;
+
     // ---- peak cache ----
     private const int PeakBlock = 256;
     private float[][]? _peakMin;
@@ -263,6 +268,18 @@ public sealed class WaveformView : Control
     {
         base.OnMouseDown(e);
         Focus();
+
+        // middle-button drag pans the timeline ("grab and scroll")
+        if (e.Button == MouseButtons.Middle && _doc != null)
+        {
+            _panning = true;
+            _panStartX = e.X;
+            _panStartFirstVisible = _firstVisible;
+            Cursor = Cursors.SizeWE;
+            Capture = true;
+            return;
+        }
+
         if (e.Button != MouseButtons.Left || _doc == null) return;
         if (e.Y > WaveHeight + RulerHeight) return; // on scrollbar
 
@@ -291,6 +308,18 @@ public sealed class WaveformView : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+
+        if (_panning && _doc != null)
+        {
+            // drag right -> content moves right -> view start decreases
+            _firstVisible = _panStartFirstVisible - (e.X - _panStartX) * _samplesPerPixel;
+            ClampView();
+            UpdateScrollBar();
+            Invalidate();
+            ViewChanged?.Invoke();
+            return;
+        }
+
         if (!_selecting || _doc == null) return;
 
         // auto-scroll when dragging past an edge
@@ -310,6 +339,13 @@ public sealed class WaveformView : Control
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
+        if (_panning && e.Button == MouseButtons.Middle)
+        {
+            _panning = false;
+            Capture = false;
+            Cursor = Cursors.Default;
+            return;
+        }
         if (_selecting)
         {
             _selecting = false;
