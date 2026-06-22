@@ -1,10 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 using WaveEdit.Audio;
 
 namespace WaveEdit.UI;
+
+/// <summary>A half-open selected frame range [Start, End).</summary>
+public readonly record struct SelRegion(long Start, long End)
+{
+    public long Length => Math.Max(0, End - Start);
+    public bool Overlaps(SelRegion o) => Start <= o.End && o.Start <= End; // touching counts
+}
 
 /// <summary>
 /// Scrollable, zoomable waveform display with sample-accurate selection. Renders an
@@ -24,12 +32,17 @@ public sealed class WaveformView : Control
     private float _ampScale = 1f;       // vertical amplitude zoom
 
     // ---- selection / cursor ----
-    private long _selStart, _selEnd;    // [start, end) in frames
+    // Disjoint, sorted, non-overlapping selected regions. Shift+drag adds a region;
+    // a plain drag replaces the set with one region.
+    private readonly List<SelRegion> _regions = new();
     private long _cursor;
     private long _playhead = -1;
 
-    private bool _selecting;
+    // in-progress left-button drag
+    private bool _selecting;        // Shift+drag building a selection region
+    private bool _movingCursor;     // plain drag scrubbing the cursor
     private long _dragAnchor;
+    private long _dragStart, _dragEnd;
 
     // middle-button panning
     private bool _panning;
@@ -85,7 +98,8 @@ public sealed class WaveformView : Control
     public void SetDocument(AudioDocument? doc, bool resetView)
     {
         _doc = doc;
-        _selStart = _selEnd = _cursor = 0;
+        _regions.Clear();
+        _cursor = 0;
         _playhead = -1;
         ReloadPeaks();
         if (resetView) ZoomFull();
@@ -94,28 +108,70 @@ public sealed class WaveformView : Control
     }
 
     public long Length => _doc?.Length ?? 0;
-    public long SelectionStart => _selStart;
-    public long SelectionEnd => _selEnd;
-    public long SelectionLength => Math.Max(0, _selEnd - _selStart);
-    public bool HasSelection => _selEnd > _selStart;
+
+    /// <summary>The disjoint selected regions, sorted ascending by start.</summary>
+    public IReadOnlyList<SelRegion> Regions => _regions;
+    public bool HasSelection => _regions.Count > 0;
+    public int RegionCount => _regions.Count;
+
+    /// <summary>Leftmost selected frame (bounding start), or the cursor when nothing is selected.</summary>
+    public long SelectionStart => _regions.Count > 0 ? _regions[0].Start : _cursor;
+    /// <summary>Rightmost selected frame (bounding end).</summary>
+    public long SelectionEnd => _regions.Count > 0 ? _regions[^1].End : _cursor;
+    /// <summary>Total selected frames across every region.</summary>
+    public long TotalSelectedFrames
+    {
+        get { long t = 0; foreach (var r in _regions) t += r.Length; return t; }
+    }
+
     public long CursorFrame => _cursor;
     public double SamplesPerPixel => _samplesPerPixel;
     public long PlayheadFrame => _playhead;
 
+    /// <summary>Replace the whole selection with a single region.</summary>
     public void SetSelection(long start, long end)
     {
-        start = Math.Clamp(start, 0, Length);
-        end = Math.Clamp(end, 0, Length);
-        _selStart = Math.Min(start, end);
-        _selEnd = Math.Max(start, end);
-        _cursor = _selStart;
+        _regions.Clear();
+        AddRegionInternal(start, end);
+        _cursor = SelectionStart;
         Invalidate();
         SelectionChanged?.Invoke();
     }
 
+    /// <summary>Add a region to the existing selection, merging any overlaps.</summary>
+    public void AddRegion(long start, long end)
+    {
+        AddRegionInternal(start, end);
+        Invalidate();
+        SelectionChanged?.Invoke();
+    }
+
+    private void AddRegionInternal(long start, long end)
+    {
+        start = Math.Clamp(start, 0, Length);
+        end = Math.Clamp(end, 0, Length);
+        if (end <= start) return;
+        var add = new SelRegion(Math.Min(start, end), Math.Max(start, end));
+
+        // merge with any overlapping/touching existing regions
+        var merged = new List<SelRegion>();
+        foreach (var r in _regions)
+        {
+            if (r.Overlaps(add))
+                add = new SelRegion(Math.Min(add.Start, r.Start), Math.Max(add.End, r.End));
+            else
+                merged.Add(r);
+        }
+        merged.Add(add);
+        merged.Sort((a, b) => a.Start.CompareTo(b.Start));
+        _regions.Clear();
+        _regions.AddRange(merged);
+    }
+
     public void ClearSelection()
     {
-        _selEnd = _selStart;
+        if (_regions.Count == 0) return;
+        _regions.Clear();
         Invalidate();
         SelectionChanged?.Invoke();
     }
@@ -125,7 +181,7 @@ public sealed class WaveformView : Control
     public void SetCursor(long frame)
     {
         _cursor = Math.Clamp(frame, 0, Length);
-        _selEnd = _selStart = _cursor;
+        _regions.Clear();
         Invalidate();
         SelectionChanged?.Invoke();
         CursorMoved?.Invoke();
@@ -183,14 +239,15 @@ public sealed class WaveformView : Control
     public void ZoomToSamples()
     {
         _samplesPerPixel = 1.0 / 16; // 16 px per sample
-        CenterOn(HasSelection ? (_selStart + _selEnd) / 2 : _cursor);
+        CenterOn(HasSelection ? (SelectionStart + SelectionEnd) / 2 : _cursor);
     }
 
     public void ZoomToSelection()
     {
         if (!HasSelection) return;
-        _samplesPerPixel = Math.Max((double)SelectionLength / WaveWidth, 1.0 / 64);
-        _firstVisible = _selStart;
+        long span = SelectionEnd - SelectionStart;
+        _samplesPerPixel = Math.Max((double)span / WaveWidth, 1.0 / 64);
+        _firstVisible = SelectionStart;
         ClampView(); UpdateScrollBar(); Invalidate(); ViewChanged?.Invoke();
     }
 
@@ -286,23 +343,24 @@ public sealed class WaveformView : Control
         long frame = (long)Math.Round(Math.Clamp(FrameAtX(e.X), 0, Length));
         bool shift = (ModifierKeys & Keys.Shift) == Keys.Shift;
 
-        if (shift && (HasSelection || _cursor != frame))
+        if (shift)
         {
-            // extend selection from the existing anchor (cursor) to here
-            _dragAnchor = HasSelection ? (frame < _selStart ? _selEnd : _selStart) : _cursor;
+            // Shift+drag is the ONLY way to (add to the) selection.
             _selecting = true;
-            SetSelection(_dragAnchor, frame);
+            _dragAnchor = frame;
+            _dragStart = _dragEnd = frame;
+            Capture = true;
         }
         else
         {
-            _dragAnchor = frame;
-            _selecting = true;
+            // Plain LMB moves the cursor (and keeps moving it while dragged);
+            // it never changes the selection. Use Ctrl+D to deselect everything.
+            _movingCursor = true;
             _cursor = frame;
-            _selStart = _selEnd = frame; // collapse; becomes a range on drag
             Invalidate();
-            SelectionChanged?.Invoke();
+            CursorMoved?.Invoke();
+            Capture = true;
         }
-        Capture = true;
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -320,7 +378,7 @@ public sealed class WaveformView : Control
             return;
         }
 
-        if (!_selecting || _doc == null) return;
+        if (_doc == null || (!_selecting && !_movingCursor)) return;
 
         // auto-scroll when dragging past an edge
         if (e.X < 0) _firstVisible -= _samplesPerPixel * 16;
@@ -328,9 +386,18 @@ public sealed class WaveformView : Control
         ClampView();
 
         long frame = (long)Math.Round(Math.Clamp(FrameAtX(e.X), 0, Length));
-        _selStart = Math.Min(_dragAnchor, frame);
-        _selEnd = Math.Max(_dragAnchor, frame);
-        _cursor = _selStart;
+
+        if (_movingCursor)
+        {
+            _cursor = frame;
+            UpdateScrollBar();
+            Invalidate();
+            CursorMoved?.Invoke();
+            return;
+        }
+
+        _dragStart = Math.Min(_dragAnchor, frame);
+        _dragEnd = Math.Max(_dragAnchor, frame);
         UpdateScrollBar();
         Invalidate();
         SelectionChanged?.Invoke();
@@ -346,11 +413,19 @@ public sealed class WaveformView : Control
             Cursor = Cursors.Default;
             return;
         }
-        if (_selecting)
+        if (_movingCursor && e.Button == MouseButtons.Left)
+        {
+            _movingCursor = false;
+            Capture = false;
+            return;
+        }
+        if (_selecting && e.Button == MouseButtons.Left)
         {
             _selecting = false;
             Capture = false;
-            if (_selEnd <= _selStart) { _selEnd = _selStart; CursorMoved?.Invoke(); }
+            if (_dragEnd > _dragStart)
+                AddRegionInternal(_dragStart, _dragEnd);   // commit (merges overlaps)
+            Invalidate();
             SelectionChanged?.Invoke();
         }
     }
@@ -396,16 +471,16 @@ public sealed class WaveformView : Control
         int ch = _doc.ChannelCount;
         int bandH = h / ch;
 
-        // selection highlight (full height of wave area)
-        if (HasSelection)
-        {
-            double x0 = XOfFrame(_selStart), x1 = XOfFrame(_selEnd);
-            var rect = Rectangle.FromLTRB(
-                (int)Math.Max(0, Math.Floor(x0)), RulerHeight,
-                (int)Math.Min(w, Math.Ceiling(x1)), RulerHeight + h);
-            if (rect.Width > 0)
-                using (var b = new SolidBrush(_cSel)) g.FillRectangle(b, rect);
-        }
+        // selection highlights (full height of wave area), one per region
+        using (var selBrush = new SolidBrush(_cSel))
+            foreach (var r in EnumerateVisibleRegions())
+            {
+                double x0 = XOfFrame(r.Start), x1 = XOfFrame(r.End);
+                var rect = Rectangle.FromLTRB(
+                    (int)Math.Max(0, Math.Floor(x0)), RulerHeight,
+                    (int)Math.Min(w, Math.Ceiling(x1)), RulerHeight + h);
+                if (rect.Width > 0) g.FillRectangle(selBrush, rect);
+            }
 
         for (int c = 0; c < ch; c++)
         {
@@ -518,19 +593,27 @@ public sealed class WaveformView : Control
         }
     }
 
+    /// <summary>Committed regions plus the in-progress drag region (if any).</summary>
+    private IEnumerable<SelRegion> EnumerateVisibleRegions()
+    {
+        foreach (var r in _regions) yield return r;
+        if (_selecting && _dragEnd > _dragStart) yield return new SelRegion(_dragStart, _dragEnd);
+    }
+
     private void DrawMarkers(Graphics g, int w, int h)
     {
-        // selection edges
-        if (HasSelection)
+        // selection edges for every region
+        using (var edge = new Pen(_cSelEdge))
+            foreach (var r in EnumerateVisibleRegions())
+            {
+                float x0 = (float)XOfFrame(r.Start), x1 = (float)XOfFrame(r.End);
+                g.DrawLine(edge, x0, RulerHeight, x0, RulerHeight + h);
+                g.DrawLine(edge, x1, RulerHeight, x1, RulerHeight + h);
+            }
+
+        // cursor is always shown (plain LMB moves it; it no longer affects selection)
+        using (var cur = new Pen(_cCursor))
         {
-            using var edge = new Pen(_cSelEdge);
-            float x0 = (float)XOfFrame(_selStart), x1 = (float)XOfFrame(_selEnd);
-            g.DrawLine(edge, x0, RulerHeight, x0, RulerHeight + h);
-            g.DrawLine(edge, x1, RulerHeight, x1, RulerHeight + h);
-        }
-        else
-        {
-            using var cur = new Pen(_cCursor);
             float x = (float)XOfFrame(_cursor);
             g.DrawLine(cur, x, RulerHeight, x, RulerHeight + h);
         }

@@ -47,6 +47,8 @@ public sealed class MainForm : Form
         _view.SelectionChanged += UpdateStatus;
         _view.ViewChanged += UpdateStatus;
         _view.CursorMoved += UpdateStatus;
+        // Moving the cursor during playback seeks there (click or drag-scrub).
+        _view.CursorMoved += () => { if (_player.IsPlaying) { _player.Seek(_view.CursorFrame); _view.SetPlayhead(_view.CursorFrame); } };
         _undo.Changed += () => { _view.ReloadPeaks(); _view.Invalidate(); UpdateUndoMenu(); UpdateStatus(); };
 
         _player.PlaybackStopped += () => BeginInvoke(StopPlayback);
@@ -136,7 +138,7 @@ public sealed class MainForm : Form
         edit.DropDownItems.Add(new ToolStripSeparator());
         edit.DropDownItems.Add(Item("Insert &silence…", Keys.Control | Keys.Shift | Keys.I, (_, _) => InsertSilence()));
         edit.DropDownItems.Add(Item("Select &All", Keys.Control | Keys.A, (_, _) => _view.SelectAll()));
-        edit.DropDownItems.Add(Item("Select &None", Keys.Control | Keys.D, (_, _) => _view.ClearSelection()));
+        edit.DropDownItems.Add(Item("&Deselect All", Keys.Control | Keys.D, (_, _) => _view.ClearSelection()));
 
         var process = new ToolStripMenuItem("&Process");
         process.DropDownItems.Add(Item("&Amplify / Gain…", Keys.None, (_, _) => Amplify()));
@@ -290,8 +292,29 @@ public sealed class MainForm : Form
     {
         if (_view.HasSelection) return true;
         Beep();
-        _lblSel.Text = "Make a selection first (Shift + drag).";
+        _lblSel.Text = "Make a selection first (Shift + drag adds more regions).";
         return false;
+    }
+
+    /// <summary>Selected regions sorted ascending by start (snapshot copy).</summary>
+    private SelRegion[] Regions()
+    {
+        var src = _view.Regions;
+        var arr = new SelRegion[src.Count];
+        for (int i = 0; i < src.Count; i++) arr[i] = src[i];
+        return arr;
+    }
+
+    /// <summary>One delete command per region, ordered right-to-left so positions stay valid.</summary>
+    private static IEditCommand BuildMultiDelete(SelRegion[] regions, string name)
+    {
+        var cmds = new IEditCommand[regions.Length];
+        for (int i = 0; i < regions.Length; i++)
+        {
+            var r = regions[regions.Length - 1 - i]; // descending start
+            cmds[i] = new DeleteRangeCommand(r.Start, r.Length);
+        }
+        return new CompositeCommand(name, cmds);
     }
 
     private void Cut()
@@ -299,8 +322,10 @@ public sealed class MainForm : Form
         if (!RequireSelection()) return;
         CopyToClipboard();
         StopPlayback();
-        _undo.Execute(new DeleteRangeCommand(_view.SelectionStart, _view.SelectionLength), _doc);
-        _view.SetCursor(_view.SelectionStart);
+        var regions = Regions();
+        long at = regions[0].Start;
+        _undo.Execute(BuildMultiDelete(regions, regions.Length > 1 ? $"Cut {regions.Length} regions" : "Cut"), _doc);
+        _view.SetCursor(at);
     }
 
     private void Copy()
@@ -311,23 +336,51 @@ public sealed class MainForm : Form
 
     private void CopyToClipboard()
     {
-        _clip = _doc.ExtractRange(_view.SelectionStart, _view.SelectionLength);
+        // concatenate every selected region, in order, into one clip
+        _clip = ConcatRegions(Regions());
         _clipRate = _doc.SampleRate;
+    }
+
+    private float[][] ConcatRegions(SelRegion[] regions)
+    {
+        long total = 0;
+        foreach (var r in regions) total += r.Length;
+        var outc = new float[_doc.ChannelCount][];
+        for (int c = 0; c < _doc.ChannelCount; c++) outc[c] = new float[total];
+        long pos = 0;
+        foreach (var r in regions)
+        {
+            for (int c = 0; c < _doc.ChannelCount; c++)
+                Array.Copy(_doc.Channels[c], r.Start, outc[c], pos, r.Length);
+            pos += r.Length;
+        }
+        return outc;
     }
 
     private void Paste()
     {
         if (_clip == null) { Beep(); return; }
         StopPlayback();
-        long at = _view.HasSelection ? _view.SelectionStart : _view.CursorFrame;
-
-        // if a selection is active, paste replaces it
-        if (_view.HasSelection)
-            _undo.Execute(new DeleteRangeCommand(_view.SelectionStart, _view.SelectionLength), _doc);
-
         var data = MatchChannels(_clip, _doc.ChannelCount);
-        _undo.Execute(new InsertCommand(at, data, "Paste"), _doc);
-        _view.SetCursor(at + data[0].LongLength);
+        long clipLen = data[0].LongLength;
+
+        if (_view.HasSelection)
+        {
+            // replace the selection: delete all regions, then insert at the leftmost start
+            var regions = Regions();
+            long at = regions[0].Start;
+            var del = BuildMultiDelete(regions, "Paste");
+            var ins = new InsertCommand(at, data, "Paste");
+            _undo.Execute(new CompositeCommand("Paste", new[] { del, ins }), _doc);
+            _view.SetCursor(at + clipLen);
+        }
+        else
+        {
+            long at = _view.CursorFrame;
+            _undo.Execute(new InsertCommand(at, data, "Paste"), _doc);
+            _view.SetCursor(at + clipLen);
+        }
+
         if (_clipRate != _doc.SampleRate)
             _lblSel.Text = $"Pasted at {_clipRate}Hz into {_doc.SampleRate}Hz (no resample).";
     }
@@ -345,8 +398,9 @@ public sealed class MainForm : Form
     {
         if (!RequireSelection()) return;
         StopPlayback();
-        long at = _view.SelectionStart;
-        _undo.Execute(new DeleteRangeCommand(at, _view.SelectionLength), _doc);
+        var regions = Regions();
+        long at = regions[0].Start;
+        _undo.Execute(BuildMultiDelete(regions, regions.Length > 1 ? $"Delete {regions.Length} regions" : "Delete"), _doc);
         _view.SetCursor(at);
     }
 
@@ -375,11 +429,23 @@ public sealed class MainForm : Form
         Process($"Amplify {db:0.#}dB", (c, st, l) => Dsp.Amplify(c, st, l, gain));
     }
 
+    /// <summary>Apply an in-place processor to every selected region as a single undo step.</summary>
     private void Process(string name, Action<float[][], long, long> op)
     {
         if (!RequireSelection()) return;
         StopPlayback();
-        _undo.Execute(new ProcessRangeCommand(name, _view.SelectionStart, _view.SelectionLength, op), _doc);
+        var regions = Regions();
+        if (regions.Length == 1)
+        {
+            _undo.Execute(new ProcessRangeCommand(name, regions[0].Start, regions[0].Length, op), _doc);
+        }
+        else
+        {
+            var cmds = new IEditCommand[regions.Length];
+            for (int i = 0; i < regions.Length; i++)
+                cmds[i] = new ProcessRangeCommand(name, regions[i].Start, regions[i].Length, op);
+            _undo.Execute(new CompositeCommand($"{name} ({regions.Length} regions)", cmds), _doc);
+        }
     }
 
     // ===================== transport =====================
@@ -388,10 +454,11 @@ public sealed class MainForm : Form
     {
         if (_player.IsPlaying) { StopPlayback(); return; }
         if (_doc.Length == 0) return;
-        long start = _view.HasSelection ? _view.SelectionStart : _view.CursorFrame;
-        long end = _view.HasSelection ? _view.SelectionEnd : _doc.Length;
-        if (end <= start) { start = 0; end = _doc.Length; }
-        _player.Play(_doc, start, end);
+        // Always play from the cursor (playhead) to the end of the file.
+        // Use Play Selection (Transport menu) to audition the selection.
+        long start = _view.CursorFrame;
+        if (start >= _doc.Length) start = 0;
+        _player.Play(_doc, start, _doc.Length);
         _playTimer.Start();
     }
 
@@ -480,8 +547,13 @@ public sealed class MainForm : Form
         int sr = _doc.SampleRate;
         _lblPos.Text = $"Cursor: {FormatPos(_view.CursorFrame, sr)}";
         if (_view.HasSelection)
-            _lblSel.Text = $"Selection: {FormatPos(_view.SelectionStart, sr)} → {FormatPos(_view.SelectionEnd, sr)}  " +
-                           $"({_view.SelectionLength} smp, {(double)_view.SelectionLength / sr:0.000}s)";
+        {
+            long total = _view.TotalSelectedFrames;
+            string span = $"{FormatPos(_view.SelectionStart, sr)} → {FormatPos(_view.SelectionEnd, sr)}";
+            _lblSel.Text = _view.RegionCount > 1
+                ? $"{_view.RegionCount} regions: {span}  ({total} smp total, {(double)total / sr:0.000}s)"
+                : $"Selection: {span}  ({total} smp, {(double)total / sr:0.000}s)";
+        }
         else if (!(_lblSel.Text ?? "").StartsWith("Make") && !(_lblSel.Text ?? "").StartsWith("Pasted"))
             _lblSel.Text = "No selection";
 
@@ -511,8 +583,10 @@ public sealed class MainForm : Form
         MessageBox.Show(this,
             "WaveEdit — a native Windows audio editor\n\n" +
             "Mouse:\n" +
-            "  Shift + drag   select a range\n" +
-            "  Click          set cursor\n" +
+            "  Shift + drag   select / add a region (multi-select)\n" +
+            "  Click / drag   move the cursor (selection unchanged)\n" +
+            "  Ctrl + D       deselect everything\n" +
+            "  Middle drag    pan the timeline\n" +
             "  Wheel          zoom (Shift = scroll, Ctrl = amplitude)\n\n" +
             "Keys:\n" +
             "  Space    play / stop      F5     record\n" +

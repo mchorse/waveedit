@@ -135,6 +135,33 @@ public sealed class ProcessRangeCommand : IEditCommand
     }
 }
 
+/// <summary>
+/// Bundles several commands into one undoable step. Sub-commands run in list order on
+/// Do and in reverse on Undo. For multi-region deletes, order the children
+/// right-to-left (highest start first) so each child's absolute positions stay valid.
+/// </summary>
+public sealed class CompositeCommand : IEditCommand
+{
+    private readonly IEditCommand[] _commands;
+    public string Name { get; }
+
+    public CompositeCommand(string name, IEditCommand[] commands)
+    {
+        Name = name;
+        _commands = commands;
+    }
+
+    public void Do(AudioDocument doc)
+    {
+        foreach (var c in _commands) c.Do(doc);
+    }
+
+    public void Undo(AudioDocument doc)
+    {
+        for (int i = _commands.Length - 1; i >= 0; i--) _commands[i].Undo(doc);
+    }
+}
+
 /// <summary>Low-level splice helpers shared by commands.</summary>
 internal static class EditOps
 {

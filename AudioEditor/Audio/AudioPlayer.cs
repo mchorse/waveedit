@@ -18,6 +18,10 @@ internal sealed class DocumentSampleProvider : ISampleProvider
     /// <summary>Current playback position in frames (absolute within the document).</summary>
     public long Position => System.Threading.Volatile.Read(ref _pos);
 
+    /// <summary>Move the read position (seek). Clamped to the playable range.</summary>
+    public void Seek(long frame) =>
+        System.Threading.Volatile.Write(ref _pos, Math.Clamp(frame, 0, _end));
+
     public DocumentSampleProvider(AudioDocument doc, long start, long end)
     {
         _doc = doc;
@@ -56,6 +60,9 @@ public sealed class AudioPlayer : IDisposable
 
     /// <summary>Current playback position in frames, or -1 when idle.</summary>
     public long PositionFrames => _provider?.Position ?? -1;
+
+    /// <summary>Seek the active playback to a frame position (no-op when idle).</summary>
+    public void Seek(long frame) => _provider?.Seek(frame);
 
     /// <summary>Play frames [start, end) of the document.</summary>
     public void Play(AudioDocument doc, long start, long end)
