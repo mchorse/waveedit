@@ -60,7 +60,53 @@ public sealed class MainForm : Form
         UpdateUndoMenu();
         UpdateStatus();
 
+        EnableFileDrop();
+
         FormClosing += (_, e) => { if (!ConfirmDiscard()) e.Cancel = true; else { _player.Dispose(); } };
+    }
+
+    // ===================== drag & drop =====================
+
+    private void EnableFileDrop()
+    {
+        // The waveform view is docked Fill, so it sits on top of the form and
+        // receives the drop; the form covers the menu/toolbar/status strips.
+        foreach (Control c in new Control[] { this, _view })
+        {
+            c.AllowDrop = true;
+            c.DragEnter += OnDragEnter;
+            c.DragDrop += OnDragDrop;
+        }
+    }
+
+    private static void OnDragEnter(object? sender, DragEventArgs e)
+    {
+        e.Effect = TryGetDroppedFile(e) != null ? DragDropEffects.Copy : DragDropEffects.None;
+    }
+
+    private void OnDragDrop(object? sender, DragEventArgs e)
+    {
+        string? path = TryGetDroppedFile(e);
+        if (path == null) return;
+        Activate();
+        TryOpenPath(path);
+    }
+
+    /// <summary>Return the first dropped path with a supported audio extension, or null.</summary>
+    private static string? TryGetDroppedFile(DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent(DataFormats.FileDrop) != true) return null;
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return null;
+        foreach (var f in files)
+            if (File.Exists(f) && IsSupportedAudio(f))
+                return f;
+        return null;
+    }
+
+    private static bool IsSupportedAudio(string path)
+    {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext is ".wav" or ".mp3" or ".aiff" or ".aif" or ".wma" or ".flac";
     }
 
     // ===================== menu / toolbar =====================

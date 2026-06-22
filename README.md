@@ -25,6 +25,7 @@ no project files — open a `.wav`, edit samples directly, save back out.
 - **Processing** (Process menu): Amplify/Gain (dB), Normalize, Fade In, Fade Out, Silence selection.
 - **Live playhead** that follows playback and auto-scrolls.
 - **Status bar**: cursor position (time + sample index), selection length, format, and zoom level.
+- **Drag & drop**: drop an audio file onto the window to open it (respects the unsaved-changes prompt).
 - **Open-with**: pass a file path on the command line (or drop a file on the `.exe`).
 
 ## Build & run
