@@ -136,6 +136,7 @@ target bit depth happens only at save time.
   after every edit; for multi-hour files a multi-level mip pyramid would be the next optimization.
 
 ## Known limitations / possible next steps
+- Audio is held as **32-bit float** internally, so a 16-bit file uses ~2× its on-disk size in RAM (e.g. a 50 MB 16-bit WAV ≈ 100 MB of samples, ~150 MB working set with the runtime). This is the cost of lossless float editing/DSP. Loading streams straight into the final arrays (no transient copy). Storing native bit depth would halve it but complicate every edit — not currently done.
 - Undo stores removed/overwritten audio in memory; very large cuts on huge files cost RAM.
 - Mono/stereo only follows the source file; no channel up/down-mix UI yet.
 - No spectral view, no time-stretch.

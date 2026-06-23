@@ -27,20 +27,34 @@ public static class WavIO
         int channels = reader.WaveFormat.Channels;
         int sampleRate = reader.WaveFormat.SampleRate;
 
-        // Read the whole stream in blocks.
-        var interleaved = new System.Collections.Generic.List<float>(
-            capacity: (int)Math.Min(int.MaxValue, Math.Max(0, reader.Length / 2)));
-        var buffer = new float[sampleRate * channels]; // ~1s blocks
+        // Stream straight into the final planar arrays — no intermediate full-size copy.
+        // For WAV, reader.Length is exact (float bytes); for decoded sources (e.g. MP3) it
+        // is an estimate, so the arrays are grown/trimmed to the true frame count.
+        long estFrames = channels > 0 ? reader.Length / 4 / channels : 0;
+        if (estFrames < 0) estFrames = 0;
+        var planar = new float[channels][];
+        for (int c = 0; c < channels; c++) planar[c] = new float[estFrames];
+
+        var buffer = new float[sampleRate * channels]; // ~1s read blocks
+        long frame = 0;
         int read;
         while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
-            for (int i = 0; i < read; i++) interleaved.Add(buffer[i]);
-
-        long frames = channels > 0 ? interleaved.Count / channels : 0;
-        var planar = new float[channels][];
-        for (int c = 0; c < channels; c++) planar[c] = new float[frames];
-        for (long f = 0; f < frames; f++)
-            for (int c = 0; c < channels; c++)
-                planar[c][f] = interleaved[(int)(f * channels + c)];
+        {
+            int framesRead = read / channels;
+            if (frame + framesRead > planar[0].LongLength)
+            {
+                long grow = Math.Max(frame + framesRead, planar[0].LongLength + planar[0].LongLength / 4 + 4096);
+                for (int c = 0; c < channels; c++) Array.Resize(ref planar[c], checked((int)grow));
+            }
+            int idx = 0;
+            for (int f = 0; f < framesRead; f++)
+                for (int c = 0; c < channels; c++)
+                    planar[c][frame + f] = buffer[idx++];
+            frame += framesRead;
+        }
+        // trim any over-estimate so Length is exact
+        if (frame != planar[0].LongLength)
+            for (int c = 0; c < channels; c++) Array.Resize(ref planar[c], checked((int)frame));
 
         var doc = new AudioDocument(sampleRate, planar) { FilePath = path };
         ApplySourceFormat(doc, path);

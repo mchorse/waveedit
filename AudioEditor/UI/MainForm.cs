@@ -344,6 +344,11 @@ public sealed class MainForm : Form
             _view.SetDocument(_doc, resetView: true);
             UpdateTitle(); UpdateStatus();
             AddRecent(path);
+            // The previous document and any load scratch are now garbage; hand the
+            // pages back so the working set reflects the new file, not the peak.
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
         }
         catch (Exception ex)
         {
