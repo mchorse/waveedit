@@ -77,6 +77,33 @@ public static class WavIO
         return new AudioDocument(sampleRate, planar);
     }
 
+    /// <summary>Serialize planar audio to an in-memory 32-bit-float WAV (for the clipboard).</summary>
+    public static byte[] WavBytes(float[][] channels, int sampleRate)
+    {
+        int ch = channels.Length;
+        long len = ch > 0 ? channels[0].LongLength : 0;
+        var ms = new MemoryStream();
+        var fmt = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, ch);
+        using (var writer = new WaveFileWriter(new NAudio.Utils.IgnoreDisposeStream(ms), fmt))
+        {
+            var frame = new float[ch];
+            for (long f = 0; f < len; f++)
+            {
+                for (int c = 0; c < ch; c++) frame[c] = channels[c][f];
+                writer.WriteSamples(frame, 0, ch);
+            }
+        }
+        return ms.ToArray();
+    }
+
+    /// <summary>Read a WAV from a stream (e.g. clipboard audio) into a document.</summary>
+    public static AudioDocument LoadFromStream(Stream stream)
+    {
+        using var reader = new WaveFileReader(stream);
+        return FillPlanar(reader.ToSampleProvider(), reader.WaveFormat.Channels,
+                          reader.WaveFormat.SampleRate, reader.SampleCount);
+    }
+
     private static void ApplySourceFormat(AudioDocument doc, string path)
     {
         // For real WAVs, remember the source bit depth so re-saving is loss-faithful.

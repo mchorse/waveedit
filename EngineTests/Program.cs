@@ -220,6 +220,24 @@ Check("fade-in zeroes first sample", Math.Abs(fdoc.Channels[0][0]) < 1e-6, $"{fd
     Check("ogg round-trip: loudness in lossy range", ratio > 0.6 && ratio < 1.25, $"in={rin:0.000} out={rout:0.000} ratio={ratio:0.00}");
 }
 
+// ---- 10. clipboard WAV serialization round-trip (the bytes that cross between windows) ----
+{
+    var src = MakeSine(48000, 2, 24000, 330); // 0.5 s stereo @ 48k
+    var bytes = WavIO.WavBytes(src, 48000);
+    Check("clipboard wav bytes produced", bytes.Length > 44, $"{bytes.Length} bytes");
+    using var ms = new MemoryStream(bytes);
+    var rt = WavIO.LoadFromStream(ms);
+    Check("clipboard wav round-trip: rate/ch", rt.SampleRate == 48000 && rt.ChannelCount == 2, $"{rt.SampleRate}/{rt.ChannelCount}");
+    Check("clipboard wav round-trip: length", rt.Length == 24000, $"{rt.Length}");
+    double maxErr = 0;
+    for (long i = 0; i < 24000; i++)
+    {
+        maxErr = Math.Max(maxErr, Math.Abs(rt.Channels[0][i] - src[0][i]));
+        maxErr = Math.Max(maxErr, Math.Abs(rt.Channels[1][i] - src[1][i]));
+    }
+    Check("clipboard wav round-trip: lossless (float32)", maxErr < 1e-6, $"maxErr {maxErr:e2}");
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : $"{failures} TEST(S) FAILED");
 return failures;

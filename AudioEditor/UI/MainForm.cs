@@ -18,10 +18,6 @@ public sealed class MainForm : Form
 
     private AudioDocument _doc = AudioDocument.CreateEmpty(44100, 2);
 
-    // clipboard (app-local; survives across documents)
-    private static float[][]? _clip;
-    private static int _clipRate;
-
     // shared dark-UI palette for the menu / status bar
     private static readonly Color UiBack = Color.FromArgb(40, 43, 48);
     private static readonly Color UiText = Color.FromArgb(214, 218, 222);
@@ -460,9 +456,11 @@ public sealed class MainForm : Form
 
     private void CopyToClipboard()
     {
-        // concatenate every selected region, in order, into one clip
-        _clip = ConcatRegions(Regions());
-        _clipRate = _doc.SampleRate;
+        // concatenate every selected region and put it on the system clipboard so it
+        // can be pasted into other WaveEdit windows (or other audio apps).
+        var data = ConcatRegions(Regions());
+        try { AudioClipboard.SetAudio(data, _doc.SampleRate); }
+        catch (Exception ex) { Error("Could not copy to clipboard", ex); }
     }
 
     private float[][] ConcatRegions(SelRegion[] regions)
@@ -483,30 +481,37 @@ public sealed class MainForm : Form
 
     private void Paste()
     {
-        if (_clip == null) { Beep(); return; }
+        var clip = AudioClipboard.TryGetAudio();
+        if (clip == null) { Beep(); return; }
         StopPlayback();
-        var data = MatchChannels(_clip, _doc.ChannelCount);
+
+        // Conform clipboard audio to this document: resample to its rate, then match channels.
+        int clipRate = clip.SampleRate;
+        var conformed = Resampler.Resample(clip, _doc.SampleRate);
+        var data = MatchChannels(conformed.Channels, _doc.ChannelCount);
         long clipLen = data[0].LongLength;
 
+        long pasteAt;
         if (_view.HasSelection)
         {
             // replace the selection: delete all regions, then insert at the leftmost start
             var regions = Regions();
-            long at = regions[0].Start;
+            pasteAt = regions[0].Start;
             var del = BuildMultiDelete(regions, "Paste");
-            var ins = new InsertCommand(at, data, "Paste");
+            var ins = new InsertCommand(pasteAt, data, "Paste");
             _undo.Execute(new CompositeCommand("Paste", new[] { del, ins }), _doc);
-            _view.SetCursor(at + clipLen);
         }
         else
         {
-            long at = _view.CursorFrame;
-            _undo.Execute(new InsertCommand(at, data, "Paste"), _doc);
-            _view.SetCursor(at + clipLen);
+            pasteAt = _view.CursorFrame;
+            _undo.Execute(new InsertCommand(pasteAt, data, "Paste"), _doc);
         }
 
-        if (_clipRate != _doc.SampleRate)
-            _lblSel.Text = $"Pasted at {_clipRate}Hz into {_doc.SampleRate}Hz (no resample).";
+        // Clear the old selection and mark the freshly pasted region instead.
+        _view.SetSelection(pasteAt, pasteAt + clipLen);
+
+        if (clipRate != _doc.SampleRate)
+            _lblSel.Text = $"Pasted (resampled {clipRate} → {_doc.SampleRate} Hz).";
     }
 
     private static float[][] MatchChannels(float[][] src, int targetChannels)

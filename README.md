@@ -21,7 +21,7 @@ no project files — open a `.wav`, edit samples directly, save back out.
 
 ### Extras included
 - **Undo / redo** (`Ctrl+Z` / `Ctrl+Y`) with named history — memory-efficient (each command stores only its own inverse, not a full-file snapshot).
-- **Copy / paste** of audio regions (`Ctrl+C` / `Ctrl+V`); paste replaces the active selection.
+- **Copy / paste** of audio regions (`Ctrl+C` / `Ctrl+V`) via the **Windows clipboard** (standard `WaveAudio`/CF_WAVE), so it works **across WaveEdit windows** and to/from other audio apps. Lossless (32-bit float), auto-resampled to the target document's rate; paste replaces the active selection.
 - **Processing** (Process menu): Amplify/Gain (dB), Normalize, Fade In, Fade Out, Silence selection.
 - **Live playhead** that follows playback and auto-scrolls.
 - **Playback speed** (`Ctrl + =` / `Ctrl + -`, or *Transport ▸ Speed*): 0.25× … 5× (0.25/0.5/0.75/1/1.25/1.5/1.75/2/3/5), adjustable live during playback. Varispeed — pitch shifts with speed (no pitch-preserving time-stretch).
@@ -129,9 +129,8 @@ target bit depth happens only at save time.
   touching the audio engine — the view only depends on `AudioDocument`.
 - **NAudio** handles all device I/O and file decode. New encoders (MP3 via `MediaFoundationEncoder`,
   FLAC, etc.) slot into `WavIO` behind the existing `Save`/`Load` surface.
-- **Resampling** uses NAudio's managed WDL resampler (`Audio/Resampler.cs`). Recording into an existing
-  document conforms automatically. Cross-rate **paste** still inserts raw frames without resampling (the
-  clipboard carries its own rate) — routing paste through `Resampler` too is a small next step.
+- **Resampling** uses NAudio's managed WDL resampler (`Audio/Resampler.cs`). Recording and cross-rate
+  **paste** both conform automatically to the target document's sample rate.
 - **Peak cache** (min/max over 256-sample blocks) bounds repaint cost when zoomed out. It is rebuilt
   after every edit; for multi-hour files a multi-level mip pyramid would be the next optimization.
 
