@@ -787,16 +787,25 @@ public sealed class MainForm : Form
         return $"{(int)ts.TotalMinutes}:{ts.Seconds:00}.{ts.Milliseconds:000} ({frame})";
     }
 
+    /// <summary>Display version, e.g. "0.1", taken from the assembly version.</summary>
+    private static readonly string AppVersion = GetAppVersion();
+
+    private static string GetAppVersion()
+    {
+        var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        return v != null ? $"{v.Major}.{v.Minor}" : "0.1";
+    }
+
     private void UpdateTitle()
     {
         string name = _doc.FilePath != null ? Path.GetFileName(_doc.FilePath) : "untitled.wav";
-        Text = $"{(_doc.Modified ? "*" : "")}{name} — WaveEdit";
+        Text = $"{(_doc.Modified ? "*" : "")}{name} — WaveEdit {AppVersion}";
     }
 
     private void ShowAbout()
     {
         MessageBox.Show(this,
-            "WaveEdit — a native Windows audio editor\n\n" +
+            $"WaveEdit {AppVersion} — a native Windows audio editor\n\n" +
             "Mouse:\n" +
             "  Shift + drag   select / add a region (multi-select)\n" +
             "  Alt + drag     subtract a range from the selection\n" +

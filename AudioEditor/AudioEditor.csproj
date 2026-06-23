@@ -13,6 +13,8 @@
     <LangVersion>latest</LangVersion>
     <Platforms>AnyCPU;x64</Platforms>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Version>0.1.0</Version>
+    <Product>WaveEdit</Product>
   </PropertyGroup>
 
   <ItemGroup>
