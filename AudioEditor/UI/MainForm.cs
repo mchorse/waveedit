@@ -112,12 +112,50 @@ public sealed class MainForm : Form
         if (path == null) return;
         Activate();
 
-        // Empty document -> load here. Otherwise open the file in a new window so the
-        // current work is never disturbed.
+        // Empty document -> just load it.
         if (_doc.Length == 0)
+        {
             TryOpenPath(path);
-        else
-            LaunchNewInstance(path);
+            return;
+        }
+
+        // Otherwise let the user choose what to do with the dropped file.
+        var page = new TaskDialogPage
+        {
+            Caption = "WaveEdit",
+            Heading = "Add dropped file",
+            Text = $"\"{Path.GetFileName(path)}\"\n\nOpen it in a new window, or insert it into this document at the playhead?",
+            Icon = TaskDialogIcon.Information,
+        };
+        var insert = new TaskDialogButton("Insert at playhead");
+        var newWindow = new TaskDialogButton("Open in new window");
+        page.Buttons.Add(insert);
+        page.Buttons.Add(newWindow);
+        page.Buttons.Add(TaskDialogButton.Cancel);
+        page.DefaultButton = insert;
+
+        var result = TaskDialog.ShowDialog(this, page);
+        if (result == newWindow) LaunchNewInstance(path);
+        else if (result == insert) InsertFileAtPlayhead(path);
+    }
+
+    /// <summary>Load a file, conform it to this document, and insert it at the cursor (selecting it).</summary>
+    private void InsertFileAtPlayhead(string path)
+    {
+        AudioDocument incoming;
+        try { incoming = WavIO.Load(path); }
+        catch (Exception ex) { Error("Could not open file", ex); return; }
+        if (incoming.Length == 0) { Beep(); return; }
+
+        StopPlayback();
+        int srcRate = incoming.SampleRate;
+        var conformed = Resampler.Resample(incoming, _doc.SampleRate);   // match sample rate
+        var data = MatchChannels(conformed.Channels, _doc.ChannelCount); // mono<->stereo
+        long at = _view.CursorFrame;
+        _undo.Execute(new InsertCommand(at, data, "Insert file"), _doc);
+        _view.SetSelection(at, at + data[0].LongLength);                 // deselect + select pasted region
+        if (srcRate != _doc.SampleRate)
+            _lblSel.Text = $"Inserted (resampled {srcRate} → {_doc.SampleRate} Hz).";
     }
 
     /// <summary>Start another copy of WaveEdit with a file to open.</summary>

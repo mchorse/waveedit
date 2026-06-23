@@ -27,7 +27,7 @@ no project files — open a `.wav`, edit samples directly, save back out.
 - **Playback speed** (`Ctrl + =` / `Ctrl + -`, or *Transport ▸ Speed*): 0.25× … 5× (0.25/0.5/0.75/1/1.25/1.5/1.75/2/3/5), adjustable live during playback. Varispeed — pitch shifts with speed (no pitch-preserving time-stretch).
 - **Waveform display**: two-tone envelope (darker peak min/max + a lighter **average/RMS** core when zoomed out), faint dashed **±1.0 full-scale** guides per channel, and per-channel clipping so peaks never spill into the ruler or the neighbouring channel.
 - **Status bar**: cursor position (time + sample index), selection length, format, and zoom level.
-- **Drag & drop**: drop an audio file onto an empty document to load it; drop onto a document that already has audio and it opens in a **new window**, leaving your current work untouched.
+- **Drag & drop**: drop an audio file onto an empty document to load it. Drop onto a document that already has audio and you're asked whether to **open it in a new window** or **insert it at the playhead** (auto-resampled, channel-matched, with the inserted region selected).
 - **Open-with**: pass a file path on the command line (or drop a file on the `.exe`).
 
 ## Build & run
