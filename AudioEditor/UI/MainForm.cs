@@ -799,6 +799,7 @@ public sealed class MainForm : Form
             "WaveEdit — a native Windows audio editor\n\n" +
             "Mouse:\n" +
             "  Shift + drag   select / add a region (multi-select)\n" +
+            "  Alt + drag     subtract a range from the selection\n" +
             "  Click / drag   move the cursor (selection unchanged)\n" +
             "  Ctrl + D       deselect everything\n" +
             "  Middle drag    pan the timeline\n" +

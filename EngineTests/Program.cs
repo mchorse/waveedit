@@ -238,6 +238,32 @@ Check("fade-in zeroes first sample", Math.Abs(fdoc.Channels[0][0]) < 1e-6, $"{fd
     Check("clipboard wav round-trip: lossless (float32)", maxErr < 1e-6, $"maxErr {maxErr:e2}");
 }
 
+// ---- 11. selection subtraction (Alt-drag) region math ----
+try
+{
+    var v = new WaveEdit.UI.WaveformView();
+    v.SetDocument(new AudioDocument(44100, new[] { new float[10000] }), resetView: false);
+
+    v.SetSelection(0, 6000);
+    v.SubtractRegion(2000, 4000); // remove the middle -> split
+    Check("subtract splits a region",
+        v.Regions.Count == 2 && v.Regions[0].Start == 0 && v.Regions[0].End == 2000 &&
+        v.Regions[1].Start == 4000 && v.Regions[1].End == 6000,
+        string.Join(",", v.Regions.Select(r => $"[{r.Start},{r.End})")));
+
+    v.SubtractRegion(0, 2000); // drop the first piece entirely
+    Check("subtract removes a whole piece", v.Regions.Count == 1 && v.Regions[0].Start == 4000,
+        string.Join(",", v.Regions.Select(r => $"[{r.Start},{r.End})")));
+
+    v.SubtractRegion(3000, 9000); // covers the rest -> empty
+    Check("subtract can clear the selection", v.Regions.Count == 0, $"{v.Regions.Count}");
+    v.Dispose();
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"[INFO] subtract UI test skipped: {ex.GetType().Name}: {ex.Message}");
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : $"{failures} TEST(S) FAILED");
 return failures;

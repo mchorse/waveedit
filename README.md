@@ -11,7 +11,7 @@ no project files — open a `.wav`, edit samples directly, save back out.
 |---|------------|-------|
 | 1 | **Open / Save WAV + OGG** | `Ctrl+O` / `Ctrl+S`, native file dialogs. Reads WAV PCM 16/24/32 & float, **Ogg Vorbis**, plus MP3/AIFF/WMA/FLAC decode. Saves WAV (PCM 16/24, 32-bit float) and **Ogg Vorbis** (lossy, quality 0–1). |
 | 2 | **Playback** | Mono or stereo, **any** sample rate. `Space` plays from the cursor to the end (toggles stop). *Transport ▸ Play Selection* auditions the selected region instead. |
-| 3 | **Multi-region selection** | **Shift + drag** selects a range and adds more disjoint regions; plain click/drag only moves the cursor and never alters the selection. **Ctrl + D** deselects all. Cut/copy/paste and all effects apply to every region at once. Sample-accurate. |
+| 3 | **Multi-region selection** | **Shift + drag** selects a range and adds more disjoint regions; **Alt + drag** subtracts a range (splitting/trimming regions); plain click/drag only moves the cursor and never alters the selection. **Ctrl + D** deselects all. Cut/copy/paste and all effects apply to every region at once. Sample-accurate. |
 | 4 | **Cut** | `Ctrl+X` / `Del` removes the selected waveform (with undo). |
 | 5 | **Insert silence** | `Ctrl+Shift+I`, prompts for a duration in seconds. |
 | 6 | **Zoom to individual samples** | Mouse wheel zooms from whole-file down to ~64 px per sample, drawing sample dots and stems. |
@@ -77,6 +77,7 @@ need a moment (or an Explorer restart) to show the new icon.
 | Mouse | Action |
 |-------|--------|
 | Shift + drag | Select a range / add another region (multi-select) |
+| Alt + drag | Subtract a range from the selection |
 | Click / drag | Move the cursor (selection unchanged) |
 | Ctrl + D | Deselect everything |
 | Middle-button drag | Pan the timeline |

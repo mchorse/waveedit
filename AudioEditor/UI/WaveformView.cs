@@ -39,7 +39,8 @@ public sealed class WaveformView : Control
     private long _playhead = -1;
 
     // in-progress left-button drag
-    private bool _selecting;        // Shift+drag building a selection region
+    private bool _selecting;        // Shift+drag (add) or Alt+drag (subtract) a region
+    private bool _subtracting;      // true while the current drag removes from the selection
     private bool _movingCursor;     // plain drag scrubbing the cursor
     private long _dragAnchor;
     private long _dragStart, _dragEnd;
@@ -72,6 +73,7 @@ public sealed class WaveformView : Control
     private readonly Color _cAxis = Color.FromArgb(60, 64, 70);
     private readonly Color _cSel = Color.FromArgb(70, 90, 150, 230);
     private readonly Color _cSelEdge = Color.FromArgb(150, 180, 220);
+    private readonly Color _cSubtract = Color.FromArgb(80, 220, 90, 90); // preview of an Alt-drag removal
     private readonly Color _cCursor = Color.FromArgb(230, 230, 120);
     private readonly Color _cPlay = Color.FromArgb(255, 90, 90);
     private readonly Color _cRuler = Color.FromArgb(40, 43, 48);
@@ -172,6 +174,32 @@ public sealed class WaveformView : Control
         merged.Sort((a, b) => a.Start.CompareTo(b.Start));
         _regions.Clear();
         _regions.AddRange(merged);
+    }
+
+    /// <summary>Remove a range from the selection, splitting/trimming regions as needed.</summary>
+    public void SubtractRegion(long start, long end)
+    {
+        SubtractRegionInternal(start, end);
+        Invalidate();
+        SelectionChanged?.Invoke();
+    }
+
+    private void SubtractRegionInternal(long start, long end)
+    {
+        long s = Math.Clamp(Math.Min(start, end), 0, Length);
+        long e = Math.Clamp(Math.Max(start, end), 0, Length);
+        if (e <= s || _regions.Count == 0) return;
+
+        var result = new List<SelRegion>();
+        foreach (var r in _regions)
+        {
+            if (e <= r.Start || s >= r.End) { result.Add(r); continue; } // no overlap
+            if (r.Start < s) result.Add(new SelRegion(r.Start, s));       // left remainder
+            if (e < r.End) result.Add(new SelRegion(e, r.End));           // right remainder
+            // fully covered -> dropped
+        }
+        _regions.Clear();
+        _regions.AddRange(result); // already sorted & non-overlapping
     }
 
     public void ClearSelection()
@@ -353,11 +381,13 @@ public sealed class WaveformView : Control
 
         long frame = (long)Math.Round(Math.Clamp(FrameAtX(e.X), 0, Length));
         bool shift = (ModifierKeys & Keys.Shift) == Keys.Shift;
+        bool alt = (ModifierKeys & Keys.Alt) == Keys.Alt;
 
-        if (shift)
+        if (alt || shift)
         {
-            // Shift+drag is the ONLY way to (add to the) selection.
+            // Shift+drag adds a region; Alt+drag subtracts a range from the selection.
             _selecting = true;
+            _subtracting = alt;          // Alt wins if both are held
             _dragAnchor = frame;
             _dragStart = _dragEnd = frame;
             Capture = true;
@@ -435,7 +465,11 @@ public sealed class WaveformView : Control
             _selecting = false;
             Capture = false;
             if (_dragEnd > _dragStart)
-                AddRegionInternal(_dragStart, _dragEnd);   // commit (merges overlaps)
+            {
+                if (_subtracting) SubtractRegionInternal(_dragStart, _dragEnd);
+                else AddRegionInternal(_dragStart, _dragEnd);   // merges overlaps
+            }
+            _subtracting = false;
             Invalidate();
             SelectionChanged?.Invoke();
         }
@@ -492,6 +526,15 @@ public sealed class WaveformView : Control
                     (int)Math.Min(w, Math.Ceiling(x1)), RulerHeight + h);
                 if (rect.Width > 0) g.FillRectangle(selBrush, rect);
             }
+
+        // preview of the range an Alt-drag will remove
+        if (_selecting && _subtracting && _dragEnd > _dragStart)
+        {
+            var rect = Rectangle.FromLTRB(
+                (int)Math.Max(0, Math.Floor(XOfFrame(_dragStart))), RulerHeight,
+                (int)Math.Min(w, Math.Ceiling(XOfFrame(_dragEnd))), RulerHeight + h);
+            if (rect.Width > 0) using (var b = new SolidBrush(_cSubtract)) g.FillRectangle(b, rect);
+        }
 
         for (int c = 0; c < ch; c++)
         {
@@ -660,7 +703,10 @@ public sealed class WaveformView : Control
     private IEnumerable<SelRegion> EnumerateVisibleRegions()
     {
         foreach (var r in _regions) yield return r;
-        if (_selecting && _dragEnd > _dragStart) yield return new SelRegion(_dragStart, _dragEnd);
+        // show the in-progress ADD region as part of the selection; a subtract drag has
+        // its own removal preview instead.
+        if (_selecting && !_subtracting && _dragEnd > _dragStart)
+            yield return new SelRegion(_dragStart, _dragEnd);
     }
 
     private void DrawMarkers(Graphics g, int w, int h)
