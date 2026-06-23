@@ -85,6 +85,9 @@ public sealed class MainForm : Form
 
         EnableFileDrop();
 
+        // Warm the recording-device cache in the background so the first F5 is instant.
+        System.Threading.Tasks.Task.Run(Audio.DeviceCache.Prime);
+
         FormClosing += (_, e) => { if (!ConfirmDiscard()) e.Cancel = true; else { _player.Dispose(); } };
     }
 

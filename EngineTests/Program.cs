@@ -180,6 +180,22 @@ Check("fade-in zeroes first sample", Math.Abs(fdoc.Channels[0][0]) < 1e-6, $"{fd
             devs.Any(d => string.Equals(d.Id, def, StringComparison.OrdinalIgnoreCase)), def);
     else
         Console.WriteLine("[INFO] no default capture device on this machine (selection falls back to first)");
+
+    // the dialog now enumerates on a background (MTA) thread — confirm WASAPI is happy there
+    var (bgDevs, bgDef) = await System.Threading.Tasks.Task.Run(() =>
+        (WaveEdit.Audio.AudioRecorder.EnumerateDevices(), WaveEdit.Audio.AudioRecorder.DefaultInputDeviceId()));
+    Check("enumeration works off the UI thread", bgDevs.Count == devs.Count, $"{bgDevs.Count} via Task.Run");
+}
+
+// ---- 8. device cache ----
+{
+    Check("cache empty before first refresh", WaveEdit.Audio.DeviceCache.Snapshot() == null);
+    var (cd, _) = WaveEdit.Audio.DeviceCache.Refresh();
+    var snap = WaveEdit.Audio.DeviceCache.Snapshot();
+    Check("cache populated after refresh", snap.HasValue && snap.Value.Devices.Count == cd.Count, $"{snap?.Devices.Count}");
+    Check("cache Differ() false for identical list", !WaveEdit.Audio.DeviceCache.Differ(cd, cd));
+    Check("cache Differ() true when an item removed",
+        cd.Count == 0 || WaveEdit.Audio.DeviceCache.Differ(cd, cd.Skip(1).ToList()));
 }
 
 Console.WriteLine();

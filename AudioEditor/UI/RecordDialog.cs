@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using WaveEdit.Audio;
 using WaveEdit.Util;
@@ -13,7 +15,7 @@ namespace WaveEdit.UI;
 public sealed class RecordDialog : Form
 {
     private readonly ComboBox _devices = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly Button _record = new() { Text = "● Record" };
+    private readonly Button _record = new() { Text = "● Record", Enabled = false };
     private readonly Button _stop = new() { Text = "■ Stop", Enabled = false };
     private readonly Button _ok = new() { Text = "Use Recording", Enabled = false, DialogResult = DialogResult.OK };
     private readonly Button _cancel = new() { Text = "Cancel", DialogResult = DialogResult.Cancel };
@@ -51,7 +53,9 @@ public sealed class RecordDialog : Form
         Controls.AddRange(new Control[] { lblDev, _devices, _meter, _record, _stop, _status, _ok, _cancel });
         AcceptButton = _ok; CancelButton = _cancel;
 
-        Load += (_, _) => PopulateDevices();
+        // Show the dialog immediately; enumerate devices in the background so the
+        // window isn't held up by the ~1s WASAPI endpoint scan.
+        Shown += async (_, _) => await LoadDevicesAsync();
         _record.Click += (_, _) => StartRecording();
         _stop.Click += (_, _) => StopRecording();
         // remember whatever the user picks (skip programmatic selection during populate)
@@ -74,40 +78,69 @@ public sealed class RecordDialog : Form
         FormClosing += (_, _) => { _recorder.Dispose(); _decay.Dispose(); };
     }
 
-    private void PopulateDevices()
+    private async Task LoadDevicesAsync()
     {
-        _populating = true;
-        _devices.Items.Clear();
+        // 1) If we've scanned before, show the cached list instantly.
+        var cached = DeviceCache.Snapshot();
+        if (cached.HasValue)
+            PopulateFrom(cached.Value.Devices, cached.Value.DefaultId);
+        else
+        {
+            _devices.Enabled = false;
+            _record.Enabled = false;
+            _status.Text = "Loading devices…";
+        }
+
+        // 2) Refresh in the background (first open: the real scan; later: silent update).
         try
         {
-            var devices = AudioRecorder.EnumerateDevices();
+            var (devices, defaultId) = await Task.Run(DeviceCache.Refresh);
+            if (IsDisposed) return;
+
+            // Only re-populate if the device set actually changed, to avoid flicker
+            // and keeping the user's current selection.
+            if (!cached.HasValue || DeviceCache.Differ(cached.Value.Devices, devices))
+                PopulateFrom(devices, defaultId);
+        }
+        catch (Exception ex)
+        {
+            if (IsDisposed || cached.HasValue) return; // a cached list is already shown
+            _status.Text = "Enumeration failed";
+            MessageBox.Show(this, ex.Message, "Device error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    /// <summary>Fill the combo, keeping the current/remembered selection when possible.</summary>
+    private void PopulateFrom(List<InputDevice> devices, string? defaultId)
+    {
+        _populating = true;
+        try
+        {
+            string? keep = (_devices.SelectedItem as InputDevice)?.Id ?? AppSettings.LastInputDeviceId;
+            _devices.Items.Clear();
             foreach (var d in devices) _devices.Items.Add(d);
 
             if (devices.Count == 0)
             {
                 _status.Text = "No input devices found";
+                _devices.Enabled = false;
+                _record.Enabled = false;
                 return;
             }
 
-            // Prefer the last device the user picked; otherwise the system default mic;
-            // otherwise the first entry.
-            int idx = IndexOfId(devices, AppSettings.LastInputDeviceId);
-            if (idx < 0) idx = IndexOfId(devices, AudioRecorder.DefaultInputDeviceId());
+            // Prefer current/last selection, then the system default mic, then first.
+            int idx = IndexOfId(devices, keep);
+            if (idx < 0) idx = IndexOfId(devices, defaultId);
             if (idx < 0) idx = 0;
             _devices.SelectedIndex = idx;
+            _devices.Enabled = true;
+            _record.Enabled = !_recorder.IsRecording;
+            if (!_recorder.IsRecording) _status.Text = "Idle";
         }
-        catch (Exception ex)
-        {
-            _status.Text = "Enumeration failed";
-            MessageBox.Show(this, ex.Message, "Device error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
-        finally
-        {
-            _populating = false;
-        }
+        finally { _populating = false; }
     }
 
-    private static int IndexOfId(System.Collections.Generic.List<InputDevice> devices, string? id)
+    private static int IndexOfId(List<InputDevice> devices, string? id)
     {
         if (string.IsNullOrEmpty(id)) return -1;
         for (int i = 0; i < devices.Count; i++)
