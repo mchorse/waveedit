@@ -49,7 +49,7 @@ dotnet run --project EngineTests/EngineTests.csproj
 
 ## Make WaveEdit open `.wav` files (optional)
 
-WaveEdit ships **two** icons: the app icon (red half-disc + green play triangle) and a
+WaveEdit ships **two** icons: the app icon (blue half-disc + lighter-blue play triangle, matching the waveform peak/average colors) and a
 **document icon** ([wav-document.ico](AudioEditor/wav-document.ico) — a page with a waveform
 and the play-mark badged in the corner) that `.wav` files use once WaveEdit is their default.
 
@@ -100,7 +100,7 @@ need a moment (or an Explorer restart) to show the new icon.
 ```
 AudioEditor/
   Program.cs                 entry point (STA, high-DPI, open-with)
-  icon.ico                   app icon (red half-disc + green play triangle, soft shadow)
+  icon.ico                   app icon (blue half-disc + lighter-blue play triangle, soft shadow)
   Audio/
     AudioDocument.cs         planar float32 sample model (Channels[ch][frame])
     WavIO.cs                 load (AudioFileReader) / save (PCM 16/24/32, float)
