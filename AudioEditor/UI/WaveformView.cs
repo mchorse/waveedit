@@ -99,6 +99,12 @@ public sealed class WaveformView : Control
         };
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { _smallFont?.Dispose(); _smallFont = null; }
+        base.Dispose(disposing);
+    }
+
     // ---------- public model API ----------
 
     public AudioDocument? Document => _doc;

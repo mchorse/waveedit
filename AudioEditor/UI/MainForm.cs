@@ -84,7 +84,7 @@ public sealed class MainForm : Form
         // Warm the recording-device cache in the background so the first F5 is instant.
         System.Threading.Tasks.Task.Run(Audio.DeviceCache.Prime);
 
-        FormClosing += (_, e) => { if (!ConfirmDiscard()) e.Cancel = true; else { _player.Dispose(); } };
+        FormClosing += (_, e) => { if (!ConfirmDiscard()) e.Cancel = true; else { _playTimer.Dispose(); _player.Dispose(); } };
     }
 
     // ===================== drag & drop =====================
@@ -212,8 +212,10 @@ public sealed class MainForm : Form
         file.DropDownItems.Add(Item("E&xit", Keys.Alt | Keys.F4, (_, _) => Close()));
 
         var edit = new ToolStripMenuItem("&Edit");
-        _miUndo = Item("&Undo", Keys.Control | Keys.Z, (_, _) => { _undo.Undo(_doc); });
-        _miRedo = Item("&Redo", Keys.Control | Keys.Y, (_, _) => { _undo.Redo(_doc); });
+        // Stop playback first: undo/redo can shrink the document while the audio
+        // thread is reading it, which would index past the end and crash.
+        _miUndo = Item("&Undo", Keys.Control | Keys.Z, (_, _) => { StopPlayback(); _undo.Undo(_doc); });
+        _miRedo = Item("&Redo", Keys.Control | Keys.Y, (_, _) => { StopPlayback(); _undo.Redo(_doc); });
         edit.DropDownItems.Add(_miUndo);
         edit.DropDownItems.Add(_miRedo);
         edit.DropDownItems.Add(new ToolStripSeparator());
@@ -350,6 +352,7 @@ public sealed class MainForm : Form
     private void NewDocument()
     {
         if (!ConfirmDiscard()) return;
+        StopPlayback();
         _doc = AudioDocument.CreateEmpty(44100, 2);
         _undo.Clear();
         _view.SetDocument(_doc, resetView: true);

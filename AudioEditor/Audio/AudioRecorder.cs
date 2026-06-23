@@ -19,7 +19,7 @@ public sealed record InputDevice(string Id, string Name, bool IsLoopback)
 public sealed class AudioRecorder : IDisposable
 {
     private IWaveIn? _capture;
-    private readonly List<float>[] _channelBuffers = Array.Empty<List<float>>();
+    private MMDevice? _device;
     private List<float>[] _buffers = Array.Empty<List<float>>();
     private WaveFormat? _format;
 
@@ -57,9 +57,9 @@ public sealed class AudioRecorder : IDisposable
     {
         Stop();
         using var en = new MMDeviceEnumerator();
-        var mm = en.GetDevice(device.Id);
+        _device = en.GetDevice(device.Id); // kept alive for the capture; disposed in Stop()
 
-        _capture = device.IsLoopback ? new WasapiLoopbackCapture(mm) : new WasapiCapture(mm);
+        _capture = device.IsLoopback ? new WasapiLoopbackCapture(_device) : new WasapiCapture(_device);
         _format = _capture.WaveFormat;
         _buffers = new List<float>[_format.Channels];
         for (int c = 0; c < _format.Channels; c++) _buffers[c] = new List<float>();
@@ -146,6 +146,8 @@ public sealed class AudioRecorder : IDisposable
             _capture.Dispose();
             _capture = null;
         }
+        _device?.Dispose();
+        _device = null;
         IsRecording = false;
 
         if (_format == null || _buffers.Length == 0 || _buffers[0].Count == 0)
@@ -166,5 +168,7 @@ public sealed class AudioRecorder : IDisposable
             _capture.Dispose();
             _capture = null;
         }
+        _device?.Dispose();
+        _device = null;
     }
 }
