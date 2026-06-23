@@ -24,6 +24,7 @@ no project files — open a `.wav`, edit samples directly, save back out.
 - **Copy / paste** of audio regions (`Ctrl+C` / `Ctrl+V`); paste replaces the active selection.
 - **Processing** (Process menu): Amplify/Gain (dB), Normalize, Fade In, Fade Out, Silence selection.
 - **Live playhead** that follows playback and auto-scrolls.
+- **Playback speed** (`Ctrl + =` / `Ctrl + -`, or *Transport ▸ Speed*): 0.25× … 5× (0.25/0.5/0.75/1/1.25/1.5/1.75/2/3/5), adjustable live during playback. Varispeed — pitch shifts with speed (no pitch-preserving time-stretch).
 - **Waveform display**: two-tone envelope (darker peak min/max + a lighter **average/RMS** core when zoomed out), faint dashed **±1.0 full-scale** guides per channel, and per-channel clipping so peaks never spill into the ruler or the neighbouring channel.
 - **Status bar**: cursor position (time + sample index), selection length, format, and zoom level.
 - **Drag & drop**: drop an audio file onto an empty document to load it; drop onto a document that already has audio and it opens in a **new window**, leaving your current work untouched.
@@ -86,6 +87,7 @@ need a moment (or an Explorer restart) to show the new icon.
 | Key | Action | Key | Action |
 |-----|--------|-----|--------|
 | `Space` | Play / Stop | `F5` | Record |
+| `Ctrl + =` / `Ctrl + -` | Faster / slower playback | | |
 | `+` / `-` | Zoom in / out | `Home`/`End` | Go to start / end |
 | `Ctrl+O` / `Ctrl+S` | Open / Save | `Ctrl+Shift+S` | Save As |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo | `Del` | Delete selection |
@@ -138,4 +140,5 @@ target bit depth happens only at save time.
 - Mono/stereo only follows the source file; no channel up/down-mix UI yet.
 - No spectral view, no time-stretch.
 - Multi-region **normalize** scales each region to its own peak independently (not a shared peak).
+- **Playback speed is varispeed** (resample-on-the-fly via linear interpolation), so pitch rises/falls with speed. Pitch-preserving time-stretch (WSOLA / phase-vocoder) is the natural next step in `DocumentSampleProvider`.
 - **Play Selection** plays the bounding span across multiple regions (gaps included).

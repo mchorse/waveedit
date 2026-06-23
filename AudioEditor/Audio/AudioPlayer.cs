@@ -10,23 +10,33 @@ namespace WaveEdit.Audio;
 internal sealed class DocumentSampleProvider : ISampleProvider
 {
     private readonly AudioDocument _doc;
-    private readonly long _end;
-    private long _pos;
+    private readonly double _end;
+    private readonly object _sync = new();
+    private double _pos;     // fractional read position, in frames
+    private double _speed;   // frames consumed per output frame (varispeed; shifts pitch)
 
     public WaveFormat WaveFormat { get; }
 
     /// <summary>Current playback position in frames (absolute within the document).</summary>
-    public long Position => System.Threading.Volatile.Read(ref _pos);
+    public long Position { get { lock (_sync) return (long)_pos; } }
+
+    /// <summary>Playback speed multiplier. Resamples on the fly, so pitch shifts with speed.</summary>
+    public double Speed
+    {
+        get { lock (_sync) return _speed; }
+        set { lock (_sync) _speed = Math.Clamp(value, 0.05, 16.0); }
+    }
 
     /// <summary>Move the read position (seek). Clamped to the playable range.</summary>
-    public void Seek(long frame) =>
-        System.Threading.Volatile.Write(ref _pos, Math.Clamp(frame, 0, _end));
+    public void Seek(long frame) { lock (_sync) _pos = Math.Clamp(frame, 0, _end); }
 
-    public DocumentSampleProvider(AudioDocument doc, long start, long end)
+    public DocumentSampleProvider(AudioDocument doc, long start, long end, double speed)
     {
         _doc = doc;
-        _pos = Math.Clamp(start, 0, doc.Length);
-        _end = Math.Clamp(end, _pos, doc.Length);
+        double s = Math.Clamp(start, 0, doc.Length);
+        _pos = s;
+        _end = Math.Clamp(end, s, doc.Length);
+        _speed = Math.Clamp(speed, 0.05, 16.0);
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(doc.SampleRate, doc.ChannelCount);
     }
 
@@ -34,17 +44,32 @@ internal sealed class DocumentSampleProvider : ISampleProvider
     {
         int ch = _doc.ChannelCount;
         int framesWanted = count / ch;
-        long framesLeft = _end - _pos;
-        int frames = (int)Math.Min(framesWanted, framesLeft);
         int o = offset;
-        for (int f = 0; f < frames; f++)
+        int produced = 0;
+
+        lock (_sync)
         {
-            long src = _pos + f;
-            for (int c = 0; c < ch; c++)
-                buffer[o++] = _doc.Channels[c][src];
+            double pos = _pos;
+            double speed = _speed;
+            long last = _doc.Length - 1;
+            for (int f = 0; f < framesWanted; f++)
+            {
+                if (pos >= _end || last < 0) break;
+                long i0 = (long)pos;
+                long i1 = Math.Min(i0 + 1, last);
+                double frac = pos - i0;
+                for (int c = 0; c < ch; c++)
+                {
+                    var data = _doc.Channels[c];
+                    float a = data[i0], b = data[i1];
+                    buffer[o++] = (float)(a + (b - a) * frac); // linear interpolation
+                }
+                pos += speed;
+                produced++;
+            }
+            _pos = pos;
         }
-        System.Threading.Volatile.Write(ref _pos, _pos + frames);
-        return frames * ch;
+        return produced * ch;
     }
 }
 
@@ -56,10 +81,19 @@ public sealed class AudioPlayer : IDisposable
 
     public event Action? PlaybackStopped;
 
+    private double _speed = 1.0;
+
     public bool IsPlaying => _output != null && _output.PlaybackState == PlaybackState.Playing;
 
     /// <summary>Current playback position in frames, or -1 when idle.</summary>
     public long PositionFrames => _provider?.Position ?? -1;
+
+    /// <summary>Playback speed multiplier (applied live if playing). Pitch shifts with speed.</summary>
+    public double Speed
+    {
+        get => _speed;
+        set { _speed = value; if (_provider != null) _provider.Speed = value; }
+    }
 
     /// <summary>Seek the active playback to a frame position (no-op when idle).</summary>
     public void Seek(long frame) => _provider?.Seek(frame);
@@ -70,7 +104,7 @@ public sealed class AudioPlayer : IDisposable
         Stop();
         if (doc.Length == 0 || end <= start) return;
 
-        _provider = new DocumentSampleProvider(doc, start, end);
+        _provider = new DocumentSampleProvider(doc, start, end, _speed);
         _output = new WaveOutEvent { DesiredLatency = 120 };
         _output.PlaybackStopped += OnStopped;
         _output.Init(_provider);

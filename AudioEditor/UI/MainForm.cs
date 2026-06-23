@@ -31,11 +31,17 @@ public sealed class MainForm : Form
     private readonly ToolStripStatusLabel _lblPos = new() { Text = "—" };
     private readonly ToolStripStatusLabel _lblSel = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly ToolStripStatusLabel _lblFmt = new();
+    private readonly ToolStripStatusLabel _lblSpeed = new();
     private readonly ToolStripStatusLabel _lblZoom = new();
 
     private ToolStripMenuItem _miUndo = null!, _miRedo = null!;
     private ToolStripMenuItem _recentMenu = null!;
     private readonly RecentFiles _recent = new();
+
+    // playback speed (varispeed — pitch shifts with speed)
+    private static readonly double[] Speeds = { 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0, 5.0 };
+    private int _speedIndex = 3; // 1.0×
+    private ToolStripMenuItem[] _speedItems = Array.Empty<ToolStripMenuItem>();
 
     public MainForm()
     {
@@ -74,6 +80,7 @@ public sealed class MainForm : Form
 
         _view.SetDocument(_doc, resetView: true);
         UpdateUndoMenu();
+        ApplySpeed();
         UpdateStatus();
 
         EnableFileDrop();
@@ -193,10 +200,15 @@ public sealed class MainForm : Form
         transport.DropDownItems.Add(Item("&Play / Stop", Keys.None, (_, _) => TogglePlay()) /* Space handled in ProcessCmdKey */);
         transport.DropDownItems.Add(Item("Play &Selection", Keys.None, (_, _) => PlaySelection()));
         transport.DropDownItems.Add(Item("&Record…", Keys.F5, (_, _) => Record()));
+        transport.DropDownItems.Add(new ToolStripSeparator());
+        transport.DropDownItems.Add(BuildSpeedMenu());
 
         var view = new ToolStripMenuItem("&View");
-        view.DropDownItems.Add(Item("Zoom &In", Keys.Control | Keys.Oemplus, (_, _) => _view.ZoomIn()));
-        view.DropDownItems.Add(Item("Zoom &Out", Keys.Control | Keys.OemMinus, (_, _) => _view.ZoomOut()));
+        // Plain +/- zoom (handled in ProcessCmdKey); Ctrl +/- is reserved for playback speed.
+        var zin = Item("Zoom &In", Keys.None, (_, _) => _view.ZoomIn()); zin.ShortcutKeyDisplayString = "+";
+        var zout = Item("Zoom &Out", Keys.None, (_, _) => _view.ZoomOut()); zout.ShortcutKeyDisplayString = "-";
+        view.DropDownItems.Add(zin);
+        view.DropDownItems.Add(zout);
         view.DropDownItems.Add(Item("Zoom to &Selection", Keys.Control | Keys.E, (_, _) => _view.ZoomToSelection()));
         view.DropDownItems.Add(Item("Zoom to Sample &Level", Keys.None, (_, _) => _view.ZoomToSamples()));
         view.DropDownItems.Add(Item("Zoom &Full", Keys.Control | Keys.F, (_, _) => _view.ZoomFull()));
@@ -282,9 +294,9 @@ public sealed class MainForm : Form
     {
         _status.BackColor = UiBack;
         _status.ForeColor = UiText;
-        foreach (var lbl in new[] { _lblPos, _lblSel, _lblFmt, _lblZoom })
+        foreach (var lbl in new[] { _lblPos, _lblSel, _lblFmt, _lblSpeed, _lblZoom })
             lbl.ForeColor = UiText;
-        _status.Items.AddRange(new ToolStripItem[] { _lblPos, _lblSel, _lblFmt, _lblZoom });
+        _status.Items.AddRange(new ToolStripItem[] { _lblPos, _lblSel, _lblFmt, _lblSpeed, _lblZoom });
         Controls.Add(_status);
     }
 
@@ -538,6 +550,51 @@ public sealed class MainForm : Form
         }
     }
 
+    // ===================== playback speed =====================
+
+    private ToolStripMenuItem BuildSpeedMenu()
+    {
+        var menu = new ToolStripMenuItem("&Speed") { ForeColor = UiText };
+        _speedItems = new ToolStripMenuItem[Speeds.Length];
+        for (int i = 0; i < Speeds.Length; i++)
+        {
+            int idx = i;
+            var mi = new ToolStripMenuItem(FormatSpeed(Speeds[i])) { ForeColor = UiText };
+            mi.Click += (_, _) => SetSpeedIndex(idx);
+            _speedItems[i] = mi;
+            menu.DropDownItems.Add(mi);
+        }
+        menu.DropDownItems.Add(new ToolStripSeparator());
+        var faster = Item("Faster", Keys.None, (_, _) => ChangeSpeed(+1));
+        faster.ShortcutKeyDisplayString = "Ctrl + =";
+        var slower = Item("Slower", Keys.None, (_, _) => ChangeSpeed(-1));
+        slower.ShortcutKeyDisplayString = "Ctrl + -";
+        menu.DropDownItems.Add(faster);
+        menu.DropDownItems.Add(slower);
+        return menu;
+    }
+
+    private static string FormatSpeed(double s) => $"{s:0.##}×";
+
+    private void ChangeSpeed(int delta) => SetSpeedIndex(_speedIndex + delta);
+
+    private void SetSpeedIndex(int idx)
+    {
+        idx = Math.Clamp(idx, 0, Speeds.Length - 1);
+        if (idx == _speedIndex && _speedItems.Length > 0 && _speedItems[idx].Checked) return;
+        _speedIndex = idx;
+        ApplySpeed();
+    }
+
+    private void ApplySpeed()
+    {
+        double speed = Speeds[_speedIndex];
+        _player.Speed = speed;                       // live if currently playing
+        for (int i = 0; i < _speedItems.Length; i++)
+            _speedItems[i].Checked = (i == _speedIndex);
+        _lblSpeed.Text = $"Speed: {FormatSpeed(speed)}";
+    }
+
     // ===================== transport =====================
 
     private void TogglePlay()
@@ -606,6 +663,11 @@ public sealed class MainForm : Form
         switch (keyData)
         {
             case Keys.Space: TogglePlay(); return true;
+            // Ctrl +/- changes playback speed (checked before plain +/- below)
+            case Keys.Control | Keys.Oemplus:
+            case Keys.Control | Keys.Add: ChangeSpeed(+1); return true;
+            case Keys.Control | Keys.OemMinus:
+            case Keys.Control | Keys.Subtract: ChangeSpeed(-1); return true;
             case Keys.Oemplus:
             case Keys.Add: _view.ZoomIn(); return true;
             case Keys.OemMinus:
@@ -675,6 +737,7 @@ public sealed class MainForm : Form
             "Keys:\n" +
             "  Space    play / stop      F5     record\n" +
             "  + / -    zoom in / out    Home/End  go to start/end\n" +
+            "  Ctrl + / Ctrl -  playback speed (0.25×…5×, pitch shifts)\n" +
             "  Ctrl+O/S open / save      Ctrl+Z/Y  undo / redo\n" +
             "  Ctrl+X/C/V cut/copy/paste Del    delete selection\n" +
             "  Ctrl+E zoom to selection  Ctrl+F zoom full\n",

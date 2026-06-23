@@ -21,7 +21,7 @@ public static class Resampler
             return src;
 
         int ch = src.ChannelCount;
-        ISampleProvider provider = new DocumentSampleProvider(src, 0, src.Length); // interleaved float @ src rate
+        ISampleProvider provider = new DocumentSampleProvider(src, 0, src.Length, 1.0); // interleaved float @ src rate
         var resampler = new WdlResamplingSampleProvider(provider, dstRate);
 
         var outBuf = new List<float>();
