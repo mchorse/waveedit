@@ -28,6 +28,19 @@ public sealed class AudioRecorder : IDisposable
 
     public bool IsRecording { get; private set; }
 
+    /// <summary>Endpoint ID of the system default capture (microphone), or null if none.</summary>
+    public static string? DefaultInputDeviceId()
+    {
+        try
+        {
+            using var en = new MMDeviceEnumerator();
+            if (!en.HasDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia)) return null;
+            using var d = en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
+            return d.ID;
+        }
+        catch { return null; }
+    }
+
     /// <summary>Enumerate active capture endpoints plus a loopback option per render device.</summary>
     public static List<InputDevice> EnumerateDevices()
     {

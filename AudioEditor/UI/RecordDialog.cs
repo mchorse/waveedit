@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 using WaveEdit.Audio;
+using WaveEdit.Util;
 
 namespace WaveEdit.UI;
 
@@ -23,6 +24,7 @@ public sealed class RecordDialog : Form
     private readonly AudioRecorder _recorder = new();
     private float _level;
     private DateTime _started;
+    private bool _populating;
 
     public AudioDocument? Result { get; private set; }
 
@@ -52,6 +54,12 @@ public sealed class RecordDialog : Form
         Load += (_, _) => PopulateDevices();
         _record.Click += (_, _) => StartRecording();
         _stop.Click += (_, _) => StopRecording();
+        // remember whatever the user picks (skip programmatic selection during populate)
+        _devices.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_populating && _devices.SelectedItem is InputDevice d)
+                AppSettings.LastInputDeviceId = d.Id;
+        };
 
         _recorder.LevelAvailable += lvl => _level = Math.Max(_level, lvl);
         _decay.Tick += (_, _) =>
@@ -68,18 +76,44 @@ public sealed class RecordDialog : Form
 
     private void PopulateDevices()
     {
+        _populating = true;
         _devices.Items.Clear();
         try
         {
-            foreach (var d in AudioRecorder.EnumerateDevices()) _devices.Items.Add(d);
-            if (_devices.Items.Count > 0) _devices.SelectedIndex = 0;
-            else _status.Text = "No input devices found";
+            var devices = AudioRecorder.EnumerateDevices();
+            foreach (var d in devices) _devices.Items.Add(d);
+
+            if (devices.Count == 0)
+            {
+                _status.Text = "No input devices found";
+                return;
+            }
+
+            // Prefer the last device the user picked; otherwise the system default mic;
+            // otherwise the first entry.
+            int idx = IndexOfId(devices, AppSettings.LastInputDeviceId);
+            if (idx < 0) idx = IndexOfId(devices, AudioRecorder.DefaultInputDeviceId());
+            if (idx < 0) idx = 0;
+            _devices.SelectedIndex = idx;
         }
         catch (Exception ex)
         {
             _status.Text = "Enumeration failed";
             MessageBox.Show(this, ex.Message, "Device error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+        finally
+        {
+            _populating = false;
+        }
+    }
+
+    private static int IndexOfId(System.Collections.Generic.List<InputDevice> devices, string? id)
+    {
+        if (string.IsNullOrEmpty(id)) return -1;
+        for (int i = 0; i < devices.Count; i++)
+            if (string.Equals(devices[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                return i;
+        return -1;
     }
 
     private void StartRecording()

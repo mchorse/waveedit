@@ -170,6 +170,18 @@ var fdoc = new AudioDocument(sr, MakeSine(sr, 1, 1000, 1000));
 Dsp.FadeIn(fdoc.Channels, 0, 1000);
 Check("fade-in zeroes first sample", Math.Abs(fdoc.Channels[0][0]) < 1e-6, $"{fdoc.Channels[0][0]:e2}");
 
+// ---- 7. recording device discovery (default should be enumerable) ----
+{
+    var devs = WaveEdit.Audio.AudioRecorder.EnumerateDevices();
+    Check("device list enumerates", devs.Count >= 0, $"{devs.Count} device(s)");
+    var def = WaveEdit.Audio.AudioRecorder.DefaultInputDeviceId();
+    if (def != null)
+        Check("default input id is in the device list",
+            devs.Any(d => string.Equals(d.Id, def, StringComparison.OrdinalIgnoreCase)), def);
+    else
+        Console.WriteLine("[INFO] no default capture device on this machine (selection falls back to first)");
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : $"{failures} TEST(S) FAILED");
 return failures;

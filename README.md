@@ -16,7 +16,7 @@ no project files — open a `.wav`, edit samples directly, save back out.
 | 5 | **Insert silence** | `Ctrl+Shift+I`, prompts for a duration in seconds. |
 | 6 | **Zoom to individual samples** | Mouse wheel zooms from whole-file down to ~64 px per sample, drawing sample dots and stems. |
 | 7 | **Native dialogs** | Standard Win32 open/save. |
-| 8 | **Recording** | `F5` — pick any active input endpoint (mic, line-in, or render **loopback**) via WASAPI, with a live level meter. Into an existing document, the take is **auto-resampled** to the document's rate and channel-matched, then inserted at the cursor. Into an empty document it keeps its native rate. |
+| 8 | **Recording** | `F5` — pick any active input endpoint (mic, line-in, or render **loopback**) via WASAPI, with a live level meter. The dialog **remembers your last-picked device** (system default mic the first time). Into an existing document, the take is **auto-resampled** to the document's rate and channel-matched, then inserted at the cursor. Into an empty document it keeps its native rate. |
 | 9 | **Windows only** | Targets `net8.0-windows`, WinForms, WASAPI/WaveOut. |
 
 ### Extras included
