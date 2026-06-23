@@ -40,6 +40,27 @@ dotnet run  --project AudioEditor/AudioEditor.csproj
 
 The output binary is `AudioEditor/bin/Release/net8.0-windows/WaveEdit.exe`.
 
+### Packaging scripts (`scripts/`)
+
+All are no-admin and self-contained. Run from the repo root:
+
+```powershell
+# Portable release zip for itch.io -> dist\WaveEdit-portable-win-x64.zip
+powershell -ExecutionPolicy Bypass -File scripts\Build-Portable.ps1
+
+# Install (self-contained) to %LocalAppData%\Programs\WaveEdit and register the .wav association
+powershell -ExecutionPolicy Bypass -File scripts\Publish-WaveEdit.ps1
+
+# Start Menu + Desktop shortcuts to the installed copy
+powershell -ExecutionPolicy Bypass -File scripts\Create-Shortcuts.ps1
+
+# Remove the .wav association
+powershell -ExecutionPolicy Bypass -File scripts\Unregister-WaveEditWav.ps1
+```
+
+`Build-Portable.ps1` reads the version from the built exe, so just bump `<Version>` in the
+csproj and re-run — the zip name's contents and the bundled readme update automatically.
+
 ### Engine tests
 Pure (non-UI) audio logic — WAV round-trips, cut/insert/undo, DSP — is covered by a small test runner:
 
