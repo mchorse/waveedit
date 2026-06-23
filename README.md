@@ -24,6 +24,7 @@ no project files — open a `.wav`, edit samples directly, save back out.
 - **Copy / paste** of audio regions (`Ctrl+C` / `Ctrl+V`); paste replaces the active selection.
 - **Processing** (Process menu): Amplify/Gain (dB), Normalize, Fade In, Fade Out, Silence selection.
 - **Live playhead** that follows playback and auto-scrolls.
+- **Waveform display**: two-tone envelope (darker peak min/max + a lighter **average/RMS** core when zoomed out), faint dashed **±1.0 full-scale** guides per channel, and per-channel clipping so peaks never spill into the ruler or the neighbouring channel.
 - **Status bar**: cursor position (time + sample index), selection length, format, and zoom level.
 - **Drag & drop**: drop an audio file onto an empty document to load it; drop onto a document that already has audio and it opens in a **new window**, leaving your current work untouched.
 - **Open-with**: pass a file path on the command line (or drop a file on the `.exe`).

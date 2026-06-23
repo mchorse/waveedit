@@ -49,10 +49,11 @@ public sealed class WaveformView : Control
     private int _panStartX;
     private double _panStartFirstVisible;
 
-    // ---- peak cache ----
+    // ---- peak cache (min/max + mean-square for RMS) ----
     private const int PeakBlock = 256;
     private float[][]? _peakMin;
     private float[][]? _peakMax;
+    private float[][]? _peakMs;   // per-block mean of squares, for the average/RMS layer
 
     private readonly HScrollBar _scroll = new() { Dock = DockStyle.Bottom };
     private bool _suppressScroll;
@@ -61,8 +62,13 @@ public sealed class WaveformView : Control
 
     // ---- colors ----
     private readonly Color _cBg = Color.FromArgb(28, 30, 34);
-    private readonly Color _cWave = Color.FromArgb(120, 200, 255);
+    private readonly Color _cWave = Color.FromArgb(95, 160, 215);       // peak envelope (min/max)
+    private readonly Color _cWaveAvg = Color.FromArgb(175, 220, 255);   // lighter average/RMS layer
     private readonly Color _cWaveRms = Color.FromArgb(60, 130, 190);
+    private readonly Color _cFullScale = Color.FromArgb(85, 205, 110, 110); // faint ±1.0 guide lines
+    private readonly Color _cFullScaleText = Color.FromArgb(150, 200, 140, 140);
+    private Font? _smallFont;
+    private Font SmallFont => _smallFont ??= new Font(Font.FontFamily, 7f);
     private readonly Color _cAxis = Color.FromArgb(60, 64, 70);
     private readonly Color _cSel = Color.FromArgb(70, 90, 150, 230);
     private readonly Color _cSelEdge = Color.FromArgb(150, 180, 220);
@@ -193,33 +199,38 @@ public sealed class WaveformView : Control
         Invalidate();
     }
 
-    /// <summary>Rebuild the min/max peak cache from the current document.</summary>
+    /// <summary>Rebuild the min/max + mean-square peak cache from the current document.</summary>
     public void ReloadPeaks()
     {
-        if (_doc == null || _doc.Length == 0) { _peakMin = _peakMax = null; return; }
+        if (_doc == null || _doc.Length == 0) { _peakMin = _peakMax = _peakMs = null; return; }
         int ch = _doc.ChannelCount;
         long blocks = (_doc.Length + PeakBlock - 1) / PeakBlock;
         _peakMin = new float[ch][];
         _peakMax = new float[ch][];
+        _peakMs = new float[ch][];
         for (int c = 0; c < ch; c++)
         {
             var mn = new float[blocks];
             var mx = new float[blocks];
+            var ms = new float[blocks];
             var data = _doc.Channels[c];
             for (long b = 0; b < blocks; b++)
             {
                 long s = b * PeakBlock;
                 long e = Math.Min(s + PeakBlock, data.LongLength);
                 float lo = 0f, hi = 0f;
+                double sumSq = 0;
                 for (long i = s; i < e; i++)
                 {
                     float v = data[i];
                     if (v < lo) lo = v;
                     if (v > hi) hi = v;
+                    sumSq += (double)v * v;
                 }
-                mn[b] = lo; mx[b] = hi;
+                long n = Math.Max(1, e - s);
+                mn[b] = lo; mx[b] = hi; ms[b] = (float)(sumSq / n);
             }
-            _peakMin[c] = mn; _peakMax[c] = mx;
+            _peakMin[c] = mn; _peakMax[c] = mx; _peakMs[c] = ms;
         }
     }
 
@@ -458,10 +469,10 @@ public sealed class WaveformView : Control
         var g = e.Graphics;
         g.Clear(_cBg);
         int w = WaveWidth, h = WaveHeight;
-        DrawRuler(g, w);
 
         if (_doc == null || _doc.Length == 0)
         {
+            DrawRuler(g, w);
             TextRenderer.DrawText(g, "No audio loaded — Ctrl+O to open, or record (F5).",
                 Font, new Rectangle(0, RulerHeight, w, h), _cText,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
@@ -489,12 +500,18 @@ public sealed class WaveformView : Control
         }
 
         DrawMarkers(g, w, h);
+        DrawRuler(g, w); // drawn last so the waveform can never cover the ticks
     }
 
     private void DrawChannel(Graphics g, int c, int top, int bandH, int w)
     {
         int mid = top + bandH / 2;
         float halfAmp = (bandH / 2f - 2f) * _ampScale;
+
+        // Confine everything to this channel's band so tall peaks (or amplitude zoom)
+        // can't bleed into the ruler or the neighbouring channel.
+        var saved = g.Clip;
+        g.SetClip(new Rectangle(0, top, w, bandH), CombineMode.Intersect);
 
         using (var axisPen = new Pen(_cAxis))
         {
@@ -504,6 +521,29 @@ public sealed class WaveformView : Control
 
         if (_samplesPerPixel >= 1.0) DrawEnvelope(g, c, mid, halfAmp, w);
         else DrawSamples(g, c, mid, halfAmp, w);
+
+        DrawFullScaleGuides(g, mid, halfAmp, top, bandH, w);
+
+        g.Clip = saved;
+        saved.Dispose();
+    }
+
+    /// <summary>Faint dashed guides (and labels) marking the +1.0 / -1.0 full-scale levels.</summary>
+    private void DrawFullScaleGuides(Graphics g, int mid, float halfAmp, int top, int bandH, int w)
+    {
+        float yPos = mid - halfAmp; // +1.0
+        float yNeg = mid + halfAmp; // -1.0
+        using var pen = new Pen(_cFullScale) { DashStyle = DashStyle.Dash };
+        if (yPos >= top) g.DrawLine(pen, 0, yPos, w, yPos);
+        if (yNeg <= top + bandH) g.DrawLine(pen, 0, yNeg, w, yNeg);
+
+        if (bandH > 56)
+        {
+            var f = SmallFont;
+            using var br = new SolidBrush(_cFullScaleText);
+            if (yPos >= top) g.DrawString("+1.0", f, br, 2, yPos + 1);
+            if (yNeg <= top + bandH) g.DrawString("-1.0", f, br, 2, yNeg - f.Height - 1);
+        }
     }
 
     private float SampleToY(float v, int mid, float halfAmp)
@@ -518,7 +558,8 @@ public sealed class WaveformView : Control
     {
         var data = _doc!.Channels[c];
         bool useCache = _samplesPerPixel >= PeakBlock && _peakMin != null;
-        using var pen = new Pen(_cWave);
+        using var peakPen = new Pen(_cWave);     // outer peak (min/max) envelope
+        using var avgPen = new Pen(_cWaveAvg);   // inner average (RMS), lighter
 
         for (int x = 0; x < w; x++)
         {
@@ -535,8 +576,30 @@ public sealed class WaveformView : Control
             float yLo = SampleToY(hi, mid, halfAmp);
             float yHi = SampleToY(lo, mid, halfAmp);
             if (yHi - yLo < 1) yHi = yLo + 1;
-            g.DrawLine(pen, x, yLo, x, yHi);
+            g.DrawLine(peakPen, x, yLo, x, yHi);
+
+            // average (RMS) layer drawn on top, in a lighter tone, symmetric about zero
+            float rms = useCache ? RmsFromCache(c, s0, s1) : RmsFromData(data, s0, s1);
+            if (rms > 1e-4f)
+                g.DrawLine(avgPen, x, SampleToY(rms, mid, halfAmp), x, SampleToY(-rms, mid, halfAmp));
         }
+    }
+
+    private float RmsFromData(float[] data, long s0, long s1)
+    {
+        double sum = 0; long n = 0;
+        for (long i = s0; i < s1; i++) { double v = data[i]; sum += v * v; n++; }
+        return n > 0 ? (float)Math.Sqrt(sum / n) : 0f;
+    }
+
+    private float RmsFromCache(int c, long s0, long s1)
+    {
+        if (_peakMs == null) return 0f;
+        var ms = _peakMs[c];
+        long b0 = s0 / PeakBlock, b1 = (s1 - 1) / PeakBlock;
+        double sum = 0; long n = 0;
+        for (long b = b0; b <= b1 && b < ms.LongLength; b++) { sum += ms[b]; n++; }
+        return n > 0 ? (float)Math.Sqrt(sum / n) : 0f;
     }
 
     private void MinMaxFromData(float[] data, long s0, long s1, out float lo, out float hi)
