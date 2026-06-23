@@ -191,7 +191,7 @@ public sealed class MainForm : Form
     private static bool IsSupportedAudio(string path)
     {
         string ext = Path.GetExtension(path).ToLowerInvariant();
-        return ext is ".wav" or ".mp3" or ".aiff" or ".aif" or ".wma" or ".flac";
+        return ext is ".wav" or ".ogg" or ".mp3" or ".aiff" or ".aif" or ".wma" or ".flac";
     }
 
     // ===================== menu / toolbar =====================
