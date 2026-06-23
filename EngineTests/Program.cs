@@ -198,6 +198,28 @@ Check("fade-in zeroes first sample", Math.Abs(fdoc.Channels[0][0]) < 1e-6, $"{fd
         cd.Count == 0 || WaveEdit.Audio.DeviceCache.Differ(cd, cd.Skip(1).ToList()));
 }
 
+// ---- 9. Ogg Vorbis round-trip (encode then decode) ----
+{
+    int sr2 = 44100, n2 = sr2; // 1 second stereo
+    var od = new AudioDocument(sr2, MakeSine(sr2, 2, n2, 440)) { OggQuality = 0.6f };
+    string op = Path.Combine(dir, "tone.ogg");
+    WavIO.Save(od, op);
+    Check("ogg file written", File.Exists(op) && new FileInfo(op).Length > 0, $"{new FileInfo(op).Length} bytes");
+
+    var ol = WavIO.Load(op);
+    Check("ogg round-trip: sample rate", ol.SampleRate == sr2, $"{ol.SampleRate}");
+    Check("ogg round-trip: channels", ol.ChannelCount == 2, $"{ol.ChannelCount}");
+    Check("ogg round-trip: ~duration", Math.Abs(ol.Length - n2) < sr2 / 10, $"{ol.Length} vs {n2}");
+
+    double rin = 0, rout = 0;
+    for (long i = 0; i < n2; i++) rin += od.Channels[0][i] * (double)od.Channels[0][i];
+    for (long i = 0; i < ol.Length; i++) rout += ol.Channels[0][i] * (double)ol.Channels[0][i];
+    rin = Math.Sqrt(rin / n2); rout = Math.Sqrt(rout / Math.Max(1, ol.Length));
+    // lossy: just confirm it's real audio in the right ballpark (not silent / not blown up)
+    double ratio = rout / rin;
+    Check("ogg round-trip: loudness in lossy range", ratio > 0.6 && ratio < 1.25, $"in={rin:0.000} out={rout:0.000} ratio={ratio:0.00}");
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : $"{failures} TEST(S) FAILED");
 return failures;

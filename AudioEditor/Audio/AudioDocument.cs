@@ -22,6 +22,9 @@ public sealed class AudioDocument
     /// <summary>When true the file is written as 32-bit IEEE float instead of PCM.</summary>
     public bool SaveAsFloat { get; set; }
 
+    /// <summary>Ogg Vorbis encode quality (0..1) used when saving as .ogg.</summary>
+    public float OggQuality { get; set; } = 0.5f;
+
     /// <summary>Path of the file backing this document, or null if never saved.</summary>
     public string? FilePath { get; set; }
 

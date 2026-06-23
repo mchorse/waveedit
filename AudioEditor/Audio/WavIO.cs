@@ -1,44 +1,63 @@
 using System;
 using System.IO;
 using NAudio.Wave;
+using NAudio.Vorbis;
 
 namespace WaveEdit.Audio;
 
 /// <summary>
-/// Reads and writes audio files. Currently WAV (PCM 16/24/32 and IEEE float) plus
-/// anything NAudio can decode on the way in (e.g. via MediaFoundation). The public
-/// surface is format-agnostic so additional encoders (MP3/FLAC) can be slotted in later.
+/// Reads and writes audio files: WAV (PCM 16/24/32 and IEEE float) and Ogg Vorbis,
+/// plus anything NAudio can decode on the way in (MP3/AIFF/WMA, etc.). The public
+/// surface is format-agnostic so additional encoders can be slotted in later.
 /// </summary>
 public static class WavIO
 {
     /// <summary>Filter string for the open dialog.</summary>
     public const string OpenFilter =
-        "Audio files|*.wav;*.mp3;*.aiff;*.aif;*.wma;*.flac|WAV files|*.wav|All files|*.*";
+        "Audio files|*.wav;*.ogg;*.mp3;*.aiff;*.aif;*.wma;*.flac|WAV files|*.wav|Ogg Vorbis|*.ogg|All files|*.*";
 
     /// <summary>Filter string for the save dialog. Index maps to a save format.</summary>
     public const string SaveFilter =
-        "WAV PCM 16-bit|*.wav|WAV PCM 24-bit|*.wav|WAV 32-bit float|*.wav";
+        "WAV PCM 16-bit|*.wav|WAV PCM 24-bit|*.wav|WAV 32-bit float|*.wav|Ogg Vorbis|*.ogg";
 
     public static AudioDocument Load(string path)
     {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext == ".ogg")
+        {
+            using var v = new VorbisWaveReader(path);
+            long est = (long)(v.TotalTime.TotalSeconds * v.WaveFormat.SampleRate);
+            var oggDoc = FillPlanar(v, v.WaveFormat.Channels, v.WaveFormat.SampleRate, est);
+            oggDoc.FilePath = path;
+            return oggDoc;
+        }
+
         // AudioFileReader normalises everything to interleaved 32-bit float while
         // preserving the original sample rate and channel count.
         using var reader = new AudioFileReader(path);
         int channels = reader.WaveFormat.Channels;
-        int sampleRate = reader.WaveFormat.SampleRate;
-
-        // Stream straight into the final planar arrays — no intermediate full-size copy.
-        // For WAV, reader.Length is exact (float bytes); for decoded sources (e.g. MP3) it
-        // is an estimate, so the arrays are grown/trimmed to the true frame count.
         long estFrames = channels > 0 ? reader.Length / 4 / channels : 0;
+        var doc = FillPlanar(reader, channels, reader.WaveFormat.SampleRate, estFrames);
+        doc.FilePath = path;
+        ApplySourceFormat(doc, path);
+        return doc;
+    }
+
+    /// <summary>
+    /// Stream an interleaved float source straight into planar per-channel arrays.
+    /// The estimate (exact for WAV, approximate for decoded sources) is grown/trimmed
+    /// to the true frame count, so no full-size intermediate copy is made.
+    /// </summary>
+    private static AudioDocument FillPlanar(ISampleProvider src, int channels, int sampleRate, long estFrames)
+    {
         if (estFrames < 0) estFrames = 0;
         var planar = new float[channels][];
         for (int c = 0; c < channels; c++) planar[c] = new float[estFrames];
 
-        var buffer = new float[sampleRate * channels]; // ~1s read blocks
+        var buffer = new float[Math.Max(channels, sampleRate * channels)]; // ~1s blocks
         long frame = 0;
         int read;
-        while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
+        while ((read = src.Read(buffer, 0, buffer.Length)) > 0)
         {
             int framesRead = read / channels;
             if (frame + framesRead > planar[0].LongLength)
@@ -52,13 +71,10 @@ public static class WavIO
                     planar[c][frame + f] = buffer[idx++];
             frame += framesRead;
         }
-        // trim any over-estimate so Length is exact
         if (frame != planar[0].LongLength)
             for (int c = 0; c < channels; c++) Array.Resize(ref planar[c], checked((int)frame));
 
-        var doc = new AudioDocument(sampleRate, planar) { FilePath = path };
-        ApplySourceFormat(doc, path);
-        return doc;
+        return new AudioDocument(sampleRate, planar);
     }
 
     private static void ApplySourceFormat(AudioDocument doc, string path)
@@ -88,10 +104,12 @@ public static class WavIO
         }
     }
 
-    /// <summary>Save using the document's own BitDepth / SaveAsFloat settings.</summary>
+    /// <summary>Save by extension: .ogg -> Vorbis, otherwise WAV per BitDepth / SaveAsFloat.</summary>
     public static void Save(AudioDocument doc, string path)
     {
-        if (doc.SaveAsFloat) SaveFloat32(doc, path);
+        if (Path.GetExtension(path).Equals(".ogg", StringComparison.OrdinalIgnoreCase))
+            VorbisEncoderIO.Save(doc, path, doc.OggQuality);
+        else if (doc.SaveAsFloat) SaveFloat32(doc, path);
         else SavePcm(doc, path, doc.BitDepth);
         doc.FilePath = path;
         doc.Modified = false;
@@ -104,6 +122,7 @@ public static class WavIO
         {
             case 2: doc.SaveAsFloat = false; doc.BitDepth = 24; break;
             case 3: doc.SaveAsFloat = true; doc.BitDepth = 32; break;
+            case 4: break;                       // Ogg Vorbis — dispatched by extension
             default: doc.SaveAsFloat = false; doc.BitDepth = 16; break;
         }
         Save(doc, path);

@@ -9,7 +9,7 @@ no project files — open a `.wav`, edit samples directly, save back out.
 
 | # | Capability | Notes |
 |---|------------|-------|
-| 1 | **Open / Save WAV** | `Ctrl+O` / `Ctrl+S`, native file dialogs. Reads PCM 16/24/32 & IEEE float (plus MP3/AIFF/WMA/FLAC decode on the way in). Saves WAV PCM 16/24 or 32-bit float. |
+| 1 | **Open / Save WAV + OGG** | `Ctrl+O` / `Ctrl+S`, native file dialogs. Reads WAV PCM 16/24/32 & float, **Ogg Vorbis**, plus MP3/AIFF/WMA/FLAC decode. Saves WAV (PCM 16/24, 32-bit float) and **Ogg Vorbis** (lossy, quality 0–1). |
 | 2 | **Playback** | Mono or stereo, **any** sample rate. `Space` plays from the cursor to the end (toggles stop). *Transport ▸ Play Selection* auditions the selected region instead. |
 | 3 | **Multi-region selection** | **Shift + drag** selects a range and adds more disjoint regions; plain click/drag only moves the cursor and never alters the selection. **Ctrl + D** deselects all. Cut/copy/paste and all effects apply to every region at once. Sample-accurate. |
 | 4 | **Cut** | `Ctrl+X` / `Del` removes the selected waveform (with undo). |

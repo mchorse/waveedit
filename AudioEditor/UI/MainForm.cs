@@ -368,14 +368,28 @@ public sealed class MainForm : Form
 
     private bool SaveAs()
     {
+        bool isOgg = _doc.FilePath != null &&
+                     Path.GetExtension(_doc.FilePath).Equals(".ogg", StringComparison.OrdinalIgnoreCase);
         using var dlg = new SaveFileDialog
         {
             Filter = WavIO.SaveFilter,
             Title = "Save audio as",
             FileName = Path.GetFileName(_doc.FilePath ?? "untitled.wav"),
-            FilterIndex = _doc.SaveAsFloat ? 3 : _doc.BitDepth == 24 ? 2 : 1,
+            FilterIndex = isOgg ? 4 : _doc.SaveAsFloat ? 3 : _doc.BitDepth == 24 ? 2 : 1,
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return false;
+
+        // Ogg Vorbis is lossy and quality-based (no bit depth) — ask for a quality.
+        if (Path.GetExtension(dlg.FileName).Equals(".ogg", StringComparison.OrdinalIgnoreCase))
+        {
+            string? q = InputDialog.Show(this, "Ogg Vorbis quality",
+                "Quality 0.0 - 1.0 (higher = better, larger file):",
+                _doc.OggQuality.ToString("0.0", CultureInfo.InvariantCulture));
+            if (q == null) return false;
+            if (double.TryParse(q, NumberStyles.Float, CultureInfo.InvariantCulture, out double qv))
+                _doc.OggQuality = (float)Math.Clamp(qv, 0.0, 1.0);
+        }
+
         try
         {
             WavIO.SaveWithFilterIndex(_doc, dlg.FileName, dlg.FilterIndex);
@@ -711,7 +725,11 @@ public sealed class MainForm : Form
         else if (!(_lblSel.Text ?? "").StartsWith("Make") && !(_lblSel.Text ?? "").StartsWith("Pasted"))
             _lblSel.Text = "No selection";
 
-        _lblFmt.Text = $"{sr} Hz · {_doc.ChannelCount}ch · {(_doc.SaveAsFloat ? "32f" : _doc.BitDepth + "-bit")} · {_doc.DurationSeconds:0.00}s";
+        bool isOgg = _doc.FilePath != null &&
+                     Path.GetExtension(_doc.FilePath).Equals(".ogg", StringComparison.OrdinalIgnoreCase);
+        string fmt = isOgg ? $"OGG q{_doc.OggQuality:0.0}"
+                           : _doc.SaveAsFloat ? "32f" : _doc.BitDepth + "-bit";
+        _lblFmt.Text = $"{sr} Hz · {_doc.ChannelCount}ch · {fmt} · {_doc.DurationSeconds:0.00}s";
         _lblZoom.Text = _view.SamplesPerPixel < 1
             ? $"{1 / _view.SamplesPerPixel:0.#} px/sample"
             : $"{_view.SamplesPerPixel:0.#} smp/px";
