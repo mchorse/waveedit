@@ -699,8 +699,14 @@ public sealed class WaveformView : Control
         using var pen = new Pen(_cAxis);
         using var brush = new SolidBrush(_cText);
 
-        // choose a tick spacing of ~80 px
-        double framesPerTick = NiceStep(_samplesPerPixel * 80);
+        // Aim for ~80 px between ticks, snapped to a round value: round TIME steps when
+        // showing time, round SAMPLE counts when zoomed in to individual samples.
+        const double targetPx = 80;
+        double framesPerTick = sampleUnits
+            ? NiceSampleStep(_samplesPerPixel * targetPx)
+            : NiceTimeStep(_samplesPerPixel * targetPx / sr) * sr;
+        if (framesPerTick <= 0) framesPerTick = 1;
+
         double startFrame = Math.Floor(_firstVisible / framesPerTick) * framesPerTick;
 
         for (double f = startFrame; ; f += framesPerTick)
@@ -711,25 +717,48 @@ public sealed class WaveformView : Control
             g.DrawLine(pen, (float)x, RulerHeight - 6, (float)x, RulerHeight);
             string label = sampleUnits
                 ? ((long)Math.Round(f)).ToString()
-                : FormatTime(f / sr);
+                : FormatTime(Math.Round(f / sr, 4));
             g.DrawString(label, Font, brush, (float)x + 2, 2);
         }
     }
 
-    private static double NiceStep(double raw)
+    // Round sample-count steps (1, 2, 5, 10, 20, 50, …).
+    private static double NiceSampleStep(double minSamples)
     {
-        if (raw < 1) raw = 1;
-        double mag = Math.Pow(10, Math.Floor(Math.Log10(raw)));
-        double norm = raw / mag;
+        if (minSamples < 1) minSamples = 1;
+        double mag = Math.Pow(10, Math.Floor(Math.Log10(minSamples)));
+        double norm = minSamples / mag;
         double step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
         return step * mag;
     }
 
+    // Round time steps in seconds, from 1 ms up to an hour.
+    private static readonly double[] TimeSteps =
+    {
+        0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5,
+        1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600
+    };
+
+    private static double NiceTimeStep(double minSeconds)
+    {
+        foreach (var s in TimeSteps)
+            if (s >= minSeconds) return s;
+        return TimeSteps[^1];
+    }
+
     private static string FormatTime(double seconds)
     {
-        if (seconds < 1) return $"{seconds * 1000:0}ms";
-        var ts = TimeSpan.FromSeconds(seconds);
-        if (ts.TotalMinutes >= 1) return $"{(int)ts.TotalMinutes}:{ts.Seconds:00}.{ts.Milliseconds:000}";
-        return $"{ts.Seconds}.{ts.Milliseconds:000}s";
+        if (seconds < 0) seconds = 0;
+        if (seconds < 1)
+            return $"{seconds * 1000:0.###}ms";              // e.g. 1ms, 10ms, 500ms
+        if (seconds < 60)
+            return seconds == Math.Floor(seconds)
+                ? $"{seconds:0}s"                             // 1s, 2s, 30s
+                : $"{seconds:0.###}s";                        // 1.5s, 0.5s handled above
+        int m = (int)(seconds / 60);
+        double s = seconds - m * 60;
+        return s == Math.Floor(s)
+            ? $"{m}:{(int)s:00}"                              // 1:30, 5:00
+            : $"{m}:{s:00.###}";                             // 1:05.5
     }
 }
