@@ -30,6 +30,10 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed (exit $LASTEXITCODE)." }
 # Sidecar document icon used by the .wav file-type association.
 Copy-Item (Join-Path $repo 'AudioEditor\wav-document.ico') (Join-Path $InstallDir 'wav-document.ico') -Force
 
+# Third-party license notices.
+$notices = Join-Path $repo 'THIRD-PARTY-NOTICES.txt'
+if (Test-Path $notices) { Copy-Item $notices (Join-Path $InstallDir 'THIRD-PARTY-NOTICES.txt') -Force }
+
 if (-not $NoRegister) {
     & (Join-Path $PSScriptRoot 'Register-WaveEditWav.ps1') -ExePath (Join-Path $InstallDir 'WaveEdit.exe')
     try { ie4uinit.exe -ClearIconCache 2>$null } catch {}

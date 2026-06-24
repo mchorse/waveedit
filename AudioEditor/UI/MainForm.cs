@@ -822,7 +822,8 @@ public sealed class MainForm : Form
             "  Ctrl + / Ctrl -  playback speed (0.25×…5×, pitch shifts)\n" +
             "  Ctrl+O/S open / save      Ctrl+Z/Y  undo / redo\n" +
             "  Ctrl+X/C/V cut/copy/paste Del    delete selection\n" +
-            "  Ctrl+E zoom to selection  Ctrl+F zoom full\n",
+            "  Ctrl+E zoom to selection  Ctrl+F zoom full\n\n" +
+            "Uses NAudio, NVorbis & OggVorbisEncoder (MIT) — see THIRD-PARTY-NOTICES.txt.",
             "About WaveEdit", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 

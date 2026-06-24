@@ -93,6 +93,13 @@ need a moment (or an Explorer restart) to show the new icon.
 > rebuild that removes `bin\`, re-run the register script (or `dotnet publish` to a fixed folder
 > and pass that `-ExePath`).
 
+## Licenses
+
+WaveEdit bundles third-party libraries under their own (permissive, MIT) licenses —
+**NAudio**, **NAudio.Vorbis**, **NVorbis**, and **OggVorbisEncoder**. Their notices are in
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which ships inside the portable zip and the
+installed copy.
+
 ## Controls
 
 | Mouse | Action |

@@ -60,9 +60,17 @@ QUICK KEYS
   + / -              zoom        Ctrl+F full,  Ctrl+E to selection
   F1                 full help / about
 
+LICENSES
+  Bundled third-party libraries and their licenses: see THIRD-PARTY-NOTICES.txt
+
 Enjoy!
 "@
 Set-Content -Path (Join-Path $stage 'README.txt') -Value $readme -Encoding ASCII
+
+# Third-party license notices (required to redistribute the bundled libraries).
+$notices = Join-Path $repo 'THIRD-PARTY-NOTICES.txt'
+if (Test-Path $notices) { Copy-Item $notices (Join-Path $stage 'THIRD-PARTY-NOTICES.txt') -Force }
+else { Write-Warning "THIRD-PARTY-NOTICES.txt not found at repo root - the zip will ship without it." }
 
 # Zip it (archive root is the WaveEdit-portable folder).
 if (Test-Path $zip) { Remove-Item $zip -Force }
